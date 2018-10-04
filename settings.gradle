@@ -1,0 +1,5 @@
+rootProject.name = 'Sok'
+
+include 'Sok-jvm', 'Sok-js', 'Sok-native-linux'
+
+enableFeaturePreview('GRADLE_METADATA')

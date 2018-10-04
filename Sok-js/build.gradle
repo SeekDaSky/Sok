@@ -1,0 +1,95 @@
+buildscript {
+    ext.kotlin_version = '1.2.70'
+    ext.corout_version = '0.26.1'
+
+    repositories {
+        mavenCentral()
+        maven { url "https://plugins.gradle.org/m2/" }
+    }
+    dependencies {
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+        classpath 'com.moowork.gradle:gradle-node-plugin:1.2.0'
+    }
+}
+
+apply plugin: 'kotlin-platform-js'
+apply plugin: 'com.moowork.node'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    expectedBy project(":")
+
+    compile "org.jetbrains.kotlin:kotlin-stdlib-js:$kotlin_version"
+    compile "org.jetbrains.kotlinx:kotlinx-coroutines-core-js:$corout_version"
+
+    testCompile "org.jetbrains.kotlin:kotlin-test-js:$kotlin_version"
+}
+
+def output_dir = "${projectDir}/node"
+
+
+compileKotlin2Js {
+    kotlinOptions.metaInfo = true
+    kotlinOptions.sourceMap = true
+    kotlinOptions.suppressWarnings = true
+    kotlinOptions.verbose = true
+    kotlinOptions.main = "call"
+    //kotlinOptions.outputFile = "$output_dir/node_modules/Sok/index.js"
+}
+
+kotlin {
+    experimental {
+        coroutines "enable"
+    }
+}
+
+
+[compileKotlin2Js, compileTestKotlin2Js]*.configure {
+    kotlinOptions.moduleKind = "commonjs"
+}
+
+task populateNodeModules(type: Copy, dependsOn: [compileKotlin2Js, compileTestKotlin2Js]) {
+
+    from { configurations.compile.collect { it.isDirectory() ? it : zipTree(it) } }
+
+    from compileKotlin2Js.destinationDir
+    from compileTestKotlin2Js.destinationDir
+
+    configurations.testCompile.each {
+        from zipTree(it.absolutePath).matching { include '*.js' }
+    }
+
+    into "${output_dir}/node_modules"
+}
+
+node {
+    //needed for "readable.readableLength" property
+    version = "9.4.0"
+    download = true
+    nodeModulesDir = file("${output_dir}/node_modules")
+}
+
+task installMocha(type: NpmTask) {
+    args = ['install', 'mocha']
+}
+
+//task runMocha(type: NodeTask, dependsOn: [compileTestKotlin2Js, populateNodeModules, installMocha]) {
+task runMocha(type: NodeTask, dependsOn: [compileTestKotlin2Js, populateNodeModules]) {
+    script = file("${output_dir}/node_modules/mocha/bin/mocha")
+    args = ["${output_dir}/node_modules/Sok-js_test.js","--timeout","15000"]
+}
+
+test.dependsOn populateNodeModules
+//test.dependsOn runMocha
+
+// Workaround the problem with Node downloading (bypass the metadata download problem)
+repositories.whenObjectAdded {
+    if (it instanceof IvyArtifactRepository) {
+        metadataSources {
+            artifact()
+        }
+    }
+}

@@ -1,0 +1,43 @@
+buildscript {
+    ext.kotlin_native_version = '0.8.2'
+
+    repositories {
+        mavenCentral()
+        maven { url 'https://plugins.gradle.org/m2/' }
+        maven { url 'https://dl.bintray.com/jetbrains/kotlin-native-dependencies' }
+    }
+
+    // Specify all the plugins used as dependencies
+    dependencies {
+        classpath "org.jetbrains.kotlin:kotlin-native-gradle-plugin:$kotlin_native_version"
+
+    }
+}
+
+apply plugin: 'kotlin-platform-native'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    expectedBy project(":")
+
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core-native:0.26.1'
+    implementation 'org.jetbrains.kotlinx:atomicfu-native:0.11.5'
+
+    compile "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+}
+
+sourceSets {
+
+    main.kotlin.srcDirs = ['src']
+    test.kotlin.srcDirs = ['test']
+
+    main {
+        component {
+            target "linux"
+            outputKinds = [KLIBRARY]
+        }
+    }
+}
