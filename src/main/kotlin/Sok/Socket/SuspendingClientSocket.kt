@@ -1,6 +1,6 @@
 package Sok.Socket
 
-import Sok.Buffer.MultiplateformBuffer
+import Sok.Buffer.MultiplatformBuffer
 import kotlinx.coroutines.experimental.Deferred
 
 expect class SuspendingClientSocket{
@@ -36,49 +36,49 @@ expect class SuspendingClientSocket{
      *
      * @return Number of byte read
      */
-    suspend fun bulkRead(buffer : MultiplateformBuffer, operation : (buffer : MultiplateformBuffer) -> Boolean) : Long
+    suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer) -> Boolean) : Long
 
     /**
      * Perform a suspending read, the method will read n bytes ( 0 < n <= buffer.size() )
      *
      * @return Number of byte read
      */
-    suspend fun read(buffer: MultiplateformBuffer) : Int
+    suspend fun read(buffer: MultiplatformBuffer) : Int
 
     /**
      * Perform a suspending read, the method will read n bytes ( minToRead < n <= buffer.size() )
      *
      * @return Number of byte read
      */
-    suspend fun read(buffer: MultiplateformBuffer, minToRead : Int) : Int
+    suspend fun read(buffer: MultiplatformBuffer, minToRead : Int) : Int
 
     /**
      * Perform an asynchronous read, the method will read n bytes ( 0 < n <= buffer.size() )
      *
      * @return Deferred containing the number of byte read
      */
-    fun asynchronousRead(buffer: MultiplateformBuffer) : Deferred<Int>
+    fun asynchronousRead(buffer: MultiplatformBuffer) : Deferred<Int>
 
     /**
      * Perform an asynchronous read, the method will read n bytes ( minToRead < n <= buffer.size() )
      *
      * @return Deferred containing the number of byte read
      */
-    fun asynchronousRead(buffer: MultiplateformBuffer,  minToRead : Int) : Deferred<Int>
+    fun asynchronousRead(buffer: MultiplatformBuffer,  minToRead : Int) : Deferred<Int>
 
     /**
      * Perform a suspending write, the method will not resume until all the buffer is written
      *
      * @return Success of the operation
      */
-    suspend fun write(buffer: MultiplateformBuffer) : Boolean
+    suspend fun write(buffer: MultiplatformBuffer) : Boolean
 
     /**
      * Perform an asynchronous write, the method will not complete the deferred until all the bytes are written
      *
      * @return Success of the operation
      */
-    fun asynchronousWrite(buffer: MultiplateformBuffer) : Deferred<Boolean>
+    fun asynchronousWrite(buffer: MultiplatformBuffer) : Deferred<Boolean>
 }
 
 /**

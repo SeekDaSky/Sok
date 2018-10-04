@@ -1,17 +1,14 @@
 package SuspendingBasedSocket
 
-import Sok.Buffer.MultiplateformBuffer
-import Sok.Buffer.allocMultiplateformBuffer
-import Sok.Buffer.wrapMultiplateformBuffer
+import Sok.Buffer.MultiplatformBuffer
+import Sok.Buffer.allocMultiplatformBuffer
+import Sok.Buffer.wrapMultiplatformBuffer
 import Sok.Exceptions.ConnectionRefusedException
 import Sok.Socket.SuspendingServerSocket
 import Sok.Socket.createSuspendingClientSocket
 import Sok.Test.runTest
 import kotlinx.coroutines.experimental.*
 import Sok.Test.JsName
-import kotlinx.coroutines.experimental.channels.Channel
-import kotlinx.coroutines.experimental.channels.SendChannel
-import kotlin.coroutines.experimental.suspendCoroutine
 import kotlin.test.*
 
 class ClientTests {
@@ -41,14 +38,14 @@ class ClientTests {
 
         val job = GlobalScope.launch {
             val socket = server.accept()
-            val buf = allocMultiplateformBuffer(data.size)
+            val buf = allocMultiplatformBuffer(data.size)
             socket.read(buf)
             assertEquals(buf.toArray().toList(),data)
         }
 
         val client = createSuspendingClientSocket("localhost",9999)
 
-        client.write(wrapMultiplateformBuffer(data.toByteArray()))
+        client.write(wrapMultiplatformBuffer(data.toByteArray()))
         job.join()
 
         client.close()
@@ -62,14 +59,14 @@ class ClientTests {
         val data = listOf<Byte>(1,2,3,4,5,6,7,8,9)
 
         val job = GlobalScope.launch {
-            val buf = allocMultiplateformBuffer(data.size)
+            val buf = allocMultiplatformBuffer(data.size)
             server.accept().read(buf)
             assertEquals(buf.toArray().toList(),data)
         }
 
         val client = createSuspendingClientSocket("localhost",9999)
 
-        client.asynchronousWrite(wrapMultiplateformBuffer(data.toByteArray())).await()
+        client.asynchronousWrite(wrapMultiplatformBuffer(data.toByteArray())).await()
         job.join()
 
         client.close()
@@ -83,11 +80,11 @@ class ClientTests {
         val data = listOf<Byte>(1,2,3,4,5,6,7,8,9)
 
         GlobalScope.launch {
-            server.accept().write(wrapMultiplateformBuffer(data.toByteArray()))
+            server.accept().write(wrapMultiplatformBuffer(data.toByteArray()))
         }
 
         val client = createSuspendingClientSocket("localhost",9999)
-        val buf = allocMultiplateformBuffer(data.size)
+        val buf = allocMultiplatformBuffer(data.size)
         client.read(buf)
         assertEquals(buf.toArray().toList(),data)
 
@@ -102,11 +99,11 @@ class ClientTests {
         val data = listOf<Byte>(1,2,3,4,5,6,7,8,9)
 
         GlobalScope.launch {
-            server.accept().write(wrapMultiplateformBuffer(data.toByteArray()))
+            server.accept().write(wrapMultiplatformBuffer(data.toByteArray()))
         }
 
         val client = createSuspendingClientSocket("localhost",9999)
-        val buf = allocMultiplateformBuffer(data.size)
+        val buf = allocMultiplatformBuffer(data.size)
         client.asynchronousRead(buf).await()
         assertEquals(buf.toArray().toList(),data)
 
@@ -120,17 +117,17 @@ class ClientTests {
         val server = SuspendingServerSocket(address,port)
 
         val job = GlobalScope.launch {
-            val buf = allocMultiplateformBuffer(10)
+            val buf = allocMultiplatformBuffer(10)
             val client = server.accept()
             client.read(buf,10)
-            assertTrue { buf.size() == 10 }
+            assertTrue { buf.limit == 10 }
         }
 
         val client = createSuspendingClientSocket("localhost",9999)
 
         //send 15 bytes with a delay between each one, the read should return when we sent 10 bytes, not waiting for the others
         (1..15).forEach {
-            val tmpBuf = allocMultiplateformBuffer(1)
+            val tmpBuf = allocMultiplatformBuffer(1)
             tmpBuf.putByte(it.toByte())
             client.write(tmpBuf)
             delay(20)
@@ -148,16 +145,16 @@ class ClientTests {
         val server = SuspendingServerSocket(address,port)
 
         val job = GlobalScope.launch {
-            val buf = allocMultiplateformBuffer(10)
+            val buf = allocMultiplatformBuffer(10)
             server.accept().asynchronousRead(buf,10).await()
-            assertTrue { buf.size() == 10 }
+            assertTrue { buf.limit == 10 }
         }
 
         val client = createSuspendingClientSocket("localhost",9999)
 
         //send 15 bytes with a delay between each one, the read should return when we sent 10 bytes, not waiting for the others
         (1..15).forEach {
-            val tmpBuf = allocMultiplateformBuffer(1)
+            val tmpBuf = allocMultiplatformBuffer(1)
             tmpBuf.putByte(it.toByte())
             client.write(tmpBuf)
             delay(10)
@@ -181,14 +178,14 @@ class ClientTests {
         GlobalScope.launch {
             //when a buffer is too large the library will internaly use bulk write
             val client = server.accept()
-            client.write(wrapMultiplateformBuffer(data))
+            client.write(wrapMultiplatformBuffer(data))
         }
 
         val client = createSuspendingClientSocket("localhost",9999)
 
         var received = 0
-        client.bulkRead(allocMultiplateformBuffer(65_536)){
-            received += it.size()
+        client.bulkRead(allocMultiplatformBuffer(65_536)){
+            received += it.limit
             received != data.size
         }
         assertEquals(data.size,received)
@@ -204,9 +201,9 @@ class ClientTests {
 
         val job = GlobalScope.launch {
             val socket = server.accept()
-            val buffer = allocMultiplateformBuffer(4)
+            val buffer = allocMultiplatformBuffer(4)
             while(!socket.isClosed){
-                buffer.setCursor(0)
+                buffer.cursor = 0
                 socket.read(buffer)
             }
         }
@@ -215,9 +212,9 @@ class ClientTests {
 
         //prepare all the buffers
         val lastExpectedInt = 1_000
-        val buffers = mutableListOf<MultiplateformBuffer>()
+        val buffers = mutableListOf<MultiplatformBuffer>()
         (1..lastExpectedInt).forEach {
-            val buf = allocMultiplateformBuffer(4)
+            val buf = allocMultiplatformBuffer(4)
             buf.putInt(it)
             buffers.add(buf)
         }
@@ -242,9 +239,9 @@ class ClientTests {
 
         val job = GlobalScope.launch {
             val socket = server.accept()
-            val buffer = allocMultiplateformBuffer(4)
+            val buffer = allocMultiplatformBuffer(4)
             while(!socket.isClosed){
-                buffer.setCursor(0)
+                buffer.cursor = 0
                 socket.read(buffer)
             }
         }
@@ -253,9 +250,9 @@ class ClientTests {
 
         //prepare all the buffers
         val lastExpectedInt = 1_000
-        val buffers = mutableListOf<MultiplateformBuffer>()
+        val buffers = mutableListOf<MultiplatformBuffer>()
         (1..lastExpectedInt).forEach {
-            val buf = allocMultiplateformBuffer(4)
+            val buf = allocMultiplatformBuffer(4)
             buf.putInt(it)
             buffers.add(buf)
         }
@@ -302,14 +299,14 @@ class ClientTests {
         val server = SuspendingServerSocket(address,port)
 
         val job = GlobalScope.launch {
-            assertEquals(-1,server.accept().read(allocMultiplateformBuffer(1)))
+            assertEquals(-1,server.accept().read(allocMultiplatformBuffer(1)))
         }
 
         val client = createSuspendingClientSocket("localhost",9999)
         client.close()
 
-        assertEquals(false, client.write(allocMultiplateformBuffer(1)))
-        assertEquals(-1, client.read(allocMultiplateformBuffer(1)))
+        assertEquals(false, client.write(allocMultiplatformBuffer(1)))
+        assertEquals(-1, client.read(allocMultiplatformBuffer(1)))
         job.join()
         server.close()
     }

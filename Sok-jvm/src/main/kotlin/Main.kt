@@ -1,11 +1,12 @@
 import Sok.Buffer.BufferPool
-import Sok.Buffer.JVMMultiplateformBuffer
-import Sok.Buffer.MultiplateformBuffer
-import Sok.Buffer.allocDirectMultiplateformBuffer
+import Sok.Buffer.MultiplatformBuffer
+import Sok.Buffer.allocDirectMultiplatformBuffer
 import Sok.Socket.SuspendingServerSocket
 import kotlinx.coroutines.experimental.*
 val dataSize = 16777216
-val bufferPool = BufferPool(16,65536)
+val bufferPool = BufferPool(16,65536){
+    allocDirectMultiplatformBuffer(it)
+}
 
 fun main(args: Array<String>){
 
@@ -22,14 +23,14 @@ fun main(args: Array<String>){
 
                 while(!socket.isClosed){
 
-                    val buffer = JVMMultiplateformBuffer(bufferPool.requestBuffer())
+                    val buffer = bufferPool.requestObject()
 
                     val starttime = System.currentTimeMillis()
                     var received = 0
 
                     socket.bulkRead(buffer){
 
-                        received += it.size()
+                        received += it.limit
 
                         if(received >= dataSize){
                             received = 0
@@ -51,7 +52,7 @@ fun main(args: Array<String>){
                     }
 
 
-                    bufferPool.freeBuffer(buffer.nativeBuffer())
+                    bufferPool.freeObject(buffer)
                 }
             }
         }
@@ -72,12 +73,12 @@ fun main(args: Array<String>){
     }
 }
 
-fun stubBuffer() : MultiplateformBuffer{
+fun stubBuffer() : MultiplatformBuffer{
     val buf = ByteArray(dataSize){
         it.toByte()
     }
 
-    val bb = allocDirectMultiplateformBuffer(buf.size)
+    val bb = allocDirectMultiplatformBuffer(buf.size)
     bb.putBytes(buf)
 
     return bb

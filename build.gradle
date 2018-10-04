@@ -1,6 +1,7 @@
 buildscript {
     ext.kotlin_version   = '1.2.70'
     ext.corout_version   = '0.26.1'
+    ext.atomicfu_version   = '0.11.5'
 
     repositories {
         mavenCentral()
@@ -20,6 +21,7 @@ repositories {
 dependencies {
     compile "org.jetbrains.kotlin:kotlin-stdlib-common:$kotlin_version"
     compile "org.jetbrains.kotlinx:kotlinx-coroutines-core-common:$corout_version"
+    compile "org.jetbrains.kotlinx:atomicfu-common:$atomicfu_version"
 
     testCompile "org.jetbrains.kotlin:kotlin-test-annotations-common:$kotlin_version"
     testCompile "org.jetbrains.kotlin:kotlin-test-common:$kotlin_version"

@@ -87,7 +87,7 @@ actual class SuspendingClientSocket {
         if(this._isClosed.compareAndSet(false,true)){
             //wait for the write actor to consume everything in the channel
             runBlocking(Dispatchers.IO) {
-                val deferred = this@SuspendingClientSocket.asynchronousWrite(allocMultiplateformBuffer(0))
+                val deferred = this@SuspendingClientSocket.asynchronousWrite(allocMultiplatformBuffer(0))
                 this@SuspendingClientSocket.writeActor.close()
                 deferred.await()
             }
@@ -107,7 +107,7 @@ actual class SuspendingClientSocket {
         }
     }
 
-    actual suspend fun bulkRead(buffer : MultiplateformBuffer, operation : (buffer : MultiplateformBuffer) -> Boolean) : Long{
+    actual suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer) -> Boolean) : Long{
         if(this.isClosed){
             return -1
         }
@@ -117,7 +117,7 @@ actual class SuspendingClientSocket {
         return deferred.await()
     }
 
-    actual suspend fun read(buffer: MultiplateformBuffer) : Int{
+    actual suspend fun read(buffer: MultiplatformBuffer) : Int{
         if(this.isClosed){
             return -1
         }
@@ -127,7 +127,7 @@ actual class SuspendingClientSocket {
         return deferred.await()
     }
 
-    actual suspend fun read(buffer: MultiplateformBuffer, minToRead : Int) : Int{
+    actual suspend fun read(buffer: MultiplatformBuffer, minToRead : Int) : Int{
         if(this.isClosed){
             return -1
         }
@@ -136,8 +136,10 @@ actual class SuspendingClientSocket {
 
         //loop until the cursor has passed the minimum
         val request = ReadAlwaysRequest(buffer,deferred,false){
-            if(it.getCursor() >= minToRead){
-                (it as JVMMultiplateformBuffer).nativeBuffer().flip()
+            if(it.cursor >= minToRead){
+                (it as JVMMultiplatformBuffer).nativeBuffer().flip()
+                it.limit = it.nativeBuffer().limit()
+                it.cursor = 0
                 true
             }else{
                 false
@@ -148,7 +150,7 @@ actual class SuspendingClientSocket {
         return deferred.await().toInt()
     }
 
-    actual fun asynchronousRead(buffer: MultiplateformBuffer) : Deferred<Int>{
+    actual fun asynchronousRead(buffer: MultiplatformBuffer) : Deferred<Int>{
         if(this.isClosed){
             return CompletableDeferred(-1)
         }
@@ -158,7 +160,7 @@ actual class SuspendingClientSocket {
         return deferred
     }
 
-    actual fun asynchronousRead(buffer: MultiplateformBuffer, minToRead : Int) : Deferred<Int>{
+    actual fun asynchronousRead(buffer: MultiplatformBuffer, minToRead : Int) : Deferred<Int>{
         if(this.isClosed){
             return CompletableDeferred(-1)
         }
@@ -167,8 +169,10 @@ actual class SuspendingClientSocket {
 
         //loop until the cursor has passed the minimum
         val request = ReadAlwaysRequest(buffer,deferred,false){
-            if(it.getCursor() >= minToRead){
-                (it as JVMMultiplateformBuffer).nativeBuffer().flip()
+            if(it.cursor >= minToRead){
+                (it as JVMMultiplatformBuffer).nativeBuffer().flip()
+                it.limit = it.nativeBuffer().limit()
+                it.cursor = 0
                 true
             }else{
                 false
@@ -182,7 +186,7 @@ actual class SuspendingClientSocket {
         }
     }
 
-    actual suspend fun write(buffer: MultiplateformBuffer) : Boolean{
+    actual suspend fun write(buffer: MultiplatformBuffer) : Boolean{
         if(this.writeActor.isClosedForSend){
             return false
         }
@@ -193,7 +197,7 @@ actual class SuspendingClientSocket {
         return deferred.await()
     }
 
-    actual fun asynchronousWrite(buffer: MultiplateformBuffer) : Deferred<Boolean>{
+    actual fun asynchronousWrite(buffer: MultiplatformBuffer) : Deferred<Boolean>{
         if(this.writeActor.isClosedForSend){
             return CompletableDeferred(false)
         }
@@ -214,7 +218,7 @@ actual class SuspendingClientSocket {
                 is ReadOnceRequest -> {
                     //wait for the selector to detect data then read
                     selectorManager.selectOnce(SelectionKey.OP_READ)
-                    val read = channel.read((request.buffer as JVMMultiplateformBuffer).nativeBuffer())
+                    val read = channel.read((request.buffer as JVMMultiplatformBuffer).nativeBuffer())
 
                     //if the channel returns -1 it means that the channel has been closed
                     if(read == -1){
@@ -233,16 +237,18 @@ actual class SuspendingClientSocket {
 
                         //when reading a minimum number of bytes we don't want to reset the buffer at each selection
                         if(request.shouldResetBuffer){
-                            (request.buffer as JVMMultiplateformBuffer).nativeBuffer().clear()
+                            (request.buffer as JVMMultiplatformBuffer).nativeBuffer().clear()
                         }
 
                         //read and call the close lambda in case of a closed channel
-                        val read = channel.read((request.buffer as JVMMultiplateformBuffer).nativeBuffer())
+                        val read = channel.read((request.buffer as JVMMultiplatformBuffer).nativeBuffer())
                         if(read != 0){
                             totalRead += read
 
                             if(request.shouldResetBuffer){
                                 request.buffer.nativeBuffer().flip()
+                                request.buffer.limit = request.buffer.nativeBuffer().limit()
+                                request.buffer.cursor = 0
                             }
 
                             //let the operation registered by the user tell if we need another selection
@@ -264,13 +270,13 @@ actual class SuspendingClientSocket {
     private fun writeActor(selectorManager: SuspentionMap, channel: SocketChannel, onClose : () -> Unit) = GlobalScope.actor<WriteRequest>(Dispatchers.IO){
         for (request in this.channel){
 
-            request.data.setCursor(0)
+            request.data.cursor = 0
             try {
-                val buf = (request.data as JVMMultiplateformBuffer).nativeBuffer()
+                val buf = (request.data as JVMMultiplatformBuffer).nativeBuffer()
 
                 //if the buffer is larger than our TCP send buffer, there is a good chance we will have to register the OP_WRITE interest
                 //a few times, so we use the selectAlways() method to optimise that and loop while there still is data to write
-                if(request.data.size() >= channel.getOption(StandardSocketOptions.SO_SNDBUF)){
+                if(request.data.limit >= channel.getOption(StandardSocketOptions.SO_SNDBUF)){
                     suspentionMap.selectAlways(SelectionKey.OP_WRITE){
                         try {
                             channel.write(buf)
@@ -304,11 +310,11 @@ actual class SuspendingClientSocket {
 
 }
 
-class WriteRequest(val data: MultiplateformBuffer, val deferred: CompletableDeferred<Boolean>)
+class WriteRequest(val data: MultiplatformBuffer, val deferred: CompletableDeferred<Boolean>)
 
-sealed class ReadRequest(val buffer: MultiplateformBuffer)
-class ReadOnceRequest(buffer: MultiplateformBuffer, val deferred: CompletableDeferred<Int>) : ReadRequest(buffer)
-class ReadAlwaysRequest(buffer: MultiplateformBuffer, val deferred: CompletableDeferred<Long>, val shouldResetBuffer : Boolean, val operation : (buffer : MultiplateformBuffer) -> Boolean) : ReadRequest(buffer)
+sealed class ReadRequest(val buffer: MultiplatformBuffer)
+class ReadOnceRequest(buffer: MultiplatformBuffer, val deferred: CompletableDeferred<Int>) : ReadRequest(buffer)
+class ReadAlwaysRequest(buffer: MultiplatformBuffer, val deferred: CompletableDeferred<Long>, val shouldResetBuffer : Boolean, val operation : (buffer : MultiplatformBuffer) -> Boolean) : ReadRequest(buffer)
 
 /**
  * This function will create a client socket with that use the default selector, it's fine as long as the selector
