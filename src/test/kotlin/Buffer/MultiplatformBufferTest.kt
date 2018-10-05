@@ -199,13 +199,13 @@ class MultiplateformBufferTest {
         buf.putInt(4294967295.toInt())
         buf.cursor = 0
 
-        //test absolute access
-        assertEquals(4294967295,buf.getUInt(0))
+        //test absolute access (we have to compare strings representation as mocha can't compare the primitives types for some reason
+        assertEquals(4294967295.toString(),buf.getUInt(0).toString())
         assertEquals(0,buf.cursor)
 
         //test if relative get works
         buf.cursor = 0
-        assertEquals(4294967295,buf.getUInt())
+        assertEquals(4294967295.toString(),buf.getUInt().toString())
         assertEquals(4,buf.cursor)
 
         //test buffer overflow/underflow exceptions

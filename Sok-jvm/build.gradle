@@ -1,15 +1,11 @@
 buildscript {
-    ext.kotlin_version   = '1.2.70'
-    ext.corout_version   = '0.26.1'
-    ext.atomicfu_version = '0.11.4'
-
     repositories {
         mavenCentral()
     }
 
     dependencies {
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-        classpath "org.jetbrains.kotlinx:atomicfu-gradle-plugin:$atomicfu_version"
+        classpath "org.jetbrains.kotlinx:atomicfu-gradle-plugin:$atomicFU_version"
     }
 }
 
@@ -25,14 +21,14 @@ dependencies {
     expectedBy project(":")
 
     compile "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
-    compile "org.jetbrains.kotlinx:kotlinx-coroutines-core:$corout_version"
-    compile "org.jetbrains.kotlinx:atomicfu:$atomicfu_version"
+    compile "org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutine_version"
+    compile "org.jetbrains.kotlinx:atomicfu:$atomicFU_version"
 
     testCompile "junit:junit:4.12"
     testCompile "org.jetbrains.kotlin:kotlin-test-junit:$kotlin_version"
     testCompile "org.jetbrains.kotlin:kotlin-test:$kotlin_version"
 
-    testRuntime "org.jetbrains.kotlinx:atomicfu:$atomicfu_version"
+    testRuntime "org.jetbrains.kotlinx:atomicfu:$atomicFU_version"
 }
 
 kotlin {

@@ -1,67 +1,116 @@
 package Sok.Buffer
 
-import Sok.Buffer.MultiplateformBuffer
+import Sok.Buffer.MultiplatformBuffer
 import kotlinx.cinterop.*
 import platform.posix.memcpy
 import platform.posix.size_t
+import kotlin.experimental.and
 
-class NativeMultiplatformBuffer : MultiplateformBuffer{
+class NativeMultiplatformBuffer : MultiplatformBuffer{
 
     //endianness of the platform
     private val isBigEndian = ByteOrder.BIG_ENDIAN === ByteOrder.nativeOrder()
 
     //pointer to the first item (C-like array)
     val firstPointer : CPointer<ByteVar>
-    val capacity : Int
-    var limit : Int
-    var cursor = 0
 
-    constructor(size : Int){
+    constructor(size : Int) : super(size){
         this.firstPointer = nativeHeap.allocArray<ByteVar>(size)
-        this.capacity = size
-        this.limit = size
     }
 
-    constructor(array : ByteArray){
+    constructor(array : ByteArray) : super(array.size){
         //pin the array in memory (to have a stable pointer)
         val pinned = array.pin()
         this.firstPointer = pinned.addressOf(0)
-        this.capacity = array.size
-        this.limit = array.size
     }
 
-    override fun get(index:Int): Byte {
-        this.checkAccess(index,1)
-        return this.firstPointer[index]
+
+    override fun getByteImpl(index: Int?): Byte {
+        return this.firstPointer[index?: this.cursor]
     }
 
-    override fun getByte(): Byte {
-        this.checkAccess(this.cursor,1)
-        return this.firstPointer[this.cursor++]
-    }
-
-    override fun getBytes(length : Int) : ByteArray{
-        this.checkAccess(this.cursor,length)
-
+    override fun getBytesImpl(length: Int, index: Int?): ByteArray {
+        val realIndex = index ?: this.cursor
         val arr = ByteArray(length)
         arr.usePinned{
-            memcpy(it.addressOf(0),this.firstPointer+this.cursor,(this.limit-this.cursor).signExtend<size_t>())
+            memcpy(it.addressOf(0),this.firstPointer+realIndex,(this.limit-realIndex).signExtend<size_t>())
         }
-
-        this.cursor += this.limit-this.cursor
         return arr
     }
 
-    override fun getBytes(offset :Int, length : Int) : ByteArray{
-        this.checkAccess(offset,length)
-
-        val arr = ByteArray(length)
-        arr.usePinned{
-            memcpy(it.addressOf(0),this.firstPointer+offset,(this.limit-offset).signExtend<size_t>())
-        }
-
-        return arr
+    override fun getUByteImpl(index: Int?): Short {
+        return (this.getByteImpl(index).toShort() and 0xFF)
     }
+
+    override fun getShortImpl(index: Int?): Short {
+        var v = (this.firstPointer + (index ?: this.cursor))!!.reinterpret<ShortVar>()[0]
+        if(!this.isBigEndian) v = this.swap(v)
+
+        return v
+    }
+
+    override fun getUShortImpl(index: Int?): Int {
+        return (this.getShortImpl(index).toInt() and 0xFFFF)
+    }
+
+    override fun getIntImpl(index: Int?): Int {
+        var v = (this.firstPointer + (index ?: this.cursor))!!.reinterpret<IntVar>()[0]
+        if(!this.isBigEndian) v = this.swap(v)
+
+        return v
+    }
+
+    override fun getUIntImpl(index: Int?): Long {
+        return (this.getIntImpl(index).toLong() and 0xFFFFFFFF)
+    }
+
+    override fun getLongImpl(index: Int?): Long {
+        var v = (this.firstPointer + (index ?: this.cursor))!!.reinterpret<LongVar>()[0]
+        if(!this.isBigEndian) v = this.swap(v)
+
+        return v
+    }
+
+    override fun putBytesImpl(array: ByteArray, index: Int?) {
+        val realIndex = index ?: this.cursor
+        array.usePinned {
+            val address = it.addressOf(0)
+            memcpy(this.firstPointer + realIndex, address, it.get().size.signExtend<size_t>())
+        }
+    }
+
+    override fun putByteImpl(value: Byte, index: Int?) {
+        this.firstPointer[index ?: this.cursor] = value
+    }
+
+    override fun putShortImpl(value: Short, index: Int?) {
+        //swap if the endianness is wrong
+        var v = value
+        if (!isBigEndian) v = swap(value)
+
+        //interpret the index as a short and write
+        (this.firstPointer + (index ?: this.cursor))!!.reinterpret<ShortVar>()[0] = v
+    }
+
+    override fun putIntImpl(value: Int, index: Int?) {
+        //swap if the endianness is wrong
+        var v = value
+        if (!isBigEndian) v = swap(value)
+
+        //interpret the index as a short and write
+        (this.firstPointer + (index ?: this.cursor))!!.reinterpret<IntVar>()[0] = v
+    }
+
+    override fun putLongImpl(value: Long, index: Int?) {
+        //swap if the endianness is wrong
+        var v = value
+        if (!isBigEndian) v = swap(value)
+
+        //interpret the index as a short and write
+        (this.firstPointer + (index ?: this.cursor))!!.reinterpret<LongVar>()[0] = v
+    }
+
+    /*
 
     override fun getUByte(): Short {
         this.checkAccess(this.cursor,1)
@@ -91,26 +140,6 @@ class NativeMultiplatformBuffer : MultiplateformBuffer{
 
     }
 
-    override fun getShort(): Short {
-        this.checkAccess(this.cursor,2)
-
-        var v = (this.firstPointer + this.cursor)!!.reinterpret<ShortVar>()[0]
-        this.cursor += 2
-        if(!this.isBigEndian) v = this.swap(v)
-
-        return v
-    }
-
-    override fun getInt(): Int {
-        this.checkAccess(this.cursor,4)
-
-        var v = (this.firstPointer + this.cursor)!!.reinterpret<IntVar>()[0]
-        this.cursor += 4
-        if(!this.isBigEndian) v = this.swap(v)
-
-        return v
-    }
-
     override fun getUInt(): Long {
         this.checkAccess(this.cursor,4)
 
@@ -127,67 +156,7 @@ class NativeMultiplatformBuffer : MultiplateformBuffer{
         return int
     }
 
-    override fun getLong(): Long {
-        this.checkAccess(this.cursor,8)
-
-        var v = (this.firstPointer + this.cursor)!!.reinterpret<LongVar>()[0]
-        this.cursor += 8
-        if(!this.isBigEndian) v = this.swap(v)
-
-        return v
-    }
-
-    override fun putBytes(arr : ByteArray){
-        this.checkAccess(this.cursor,arr.size)
-
-        arr.usePinned {
-            val address = it.addressOf(0)
-            memcpy(this.firstPointer + this.cursor, address, it.get().size.signExtend<size_t>())
-        }
-
-        this.cursor += arr.size
-    }
-
-    override fun putByte(value: Byte) {
-        this.checkAccess(this.cursor,1)
-        this.firstPointer[this.cursor++] = value
-    }
-
-    override fun putShort(value: Short) {
-        this.checkAccess(this.cursor,2)
-
-        //swap if the endianness is wrong
-        var v = value
-        if (!isBigEndian) v = swap(value)
-
-        //interpret the index as a short and write
-        (this.firstPointer + this.cursor)!!.reinterpret<ShortVar>()[0] = v
-        this.cursor += 2
-    }
-
-    override fun putInt(value: Int) {
-        this.checkAccess(this.cursor,4)
-
-        //swap if the endianness is wrong
-        var v = value
-        if (!isBigEndian) v = swap(value)
-
-        //interpret the index as a short and write
-        (this.firstPointer + this.cursor)!!.reinterpret<IntVar>()[0] = v
-        this.cursor += 4
-    }
-
-    override fun putLong(value:Long) {
-        this.checkAccess(this.cursor,8)
-
-        //swap if the endianness is wrong
-        var v = value
-        if (!isBigEndian) v = swap(value)
-
-        //interpret the index as a short and write
-        (this.firstPointer + this.cursor)!!.reinterpret<LongVar>()[0] = v
-        this.cursor += 8
-    }
+  */
 
     override fun toArray(): ByteArray {
         val tmpArr = ByteArray(this.limit)
@@ -198,48 +167,23 @@ class NativeMultiplatformBuffer : MultiplateformBuffer{
         return tmpArr
     }
 
-    override fun size():Int {
-        return this.limit
-    }
-
-    override fun setCursor(index:Int) {
-        require(index <= this.limit)
-        this.cursor = index
-    }
-
-    override fun getCursor() :Int {
-        return this.cursor
-    }
-
-    override fun clone(): MultiplateformBuffer {
+    override fun clone(): MultiplatformBuffer {
         val tmp = NativeMultiplatformBuffer(this.capacity)
         memcpy(tmp.firstPointer,this.firstPointer,this.capacity.signExtend<size_t>())
         tmp.limit = this.limit
         return tmp
     }
 
-    override fun reset() {
-        this.cursor = 0
-    }
-
-    override fun remaining(): Int {
-        return this.limit - this.cursor
-    }
-
-    private fun checkAccess(index : Int, toGet : Int){
-        if(index + toGet > this.limit) throw Exception("Incorrect index")
-    }
-
-    fun capacity() : Int{
-        return this.capacity
-    }
-
-    fun setLimit(limit : Int){
-        this.limit = limit
-    }
-
     fun nativePointer() : CPointer<ByteVar>{
         return this.firstPointer
+    }
+
+    override fun setCursorImpl(index: Int) {
+        //does nothing on Kotlin/Native
+    }
+
+    override fun setLimitImpl(index: Int) {
+        //does nothing on Kotlin/Native
     }
 
     /**
@@ -258,10 +202,10 @@ class NativeMultiplatformBuffer : MultiplateformBuffer{
 
 }
 
-actual fun allocMultiplateformBuffer(size :Int) : MultiplateformBuffer {
+actual fun allocMultiplatformBuffer(size :Int) : MultiplatformBuffer {
     return NativeMultiplatformBuffer(size)
 }
 
-actual fun wrapMultiplateformBuffer(array : ByteArray) : MultiplateformBuffer {
+actual fun wrapMultiplatformBuffer(array : ByteArray) : MultiplatformBuffer {
     return NativeMultiplatformBuffer(array)
 }

@@ -76,7 +76,7 @@ actual class SuspendingClientSocket{
 
 
             val deferred = CompletableDeferred<Boolean>()
-            this.writeChannel.send(WriteRequest(allocMultiplateformBuffer(0),deferred))
+            this.writeChannel.send(WriteRequest(allocMultiplatformBuffer(0),deferred))
             this.writeChannel.close()
             deferred.await()
             this.writeActor.cancel()
@@ -93,23 +93,23 @@ actual class SuspendingClientSocket{
         }
     }
 
-    actual suspend fun bulkRead(buffer : MultiplateformBuffer, operation : (buffer : MultiplateformBuffer) -> Boolean) : Long {
+    actual suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer) -> Boolean) : Long {
         if(this.isClosed) return -1
 
         buffer as NativeMultiplatformBuffer
         var read : Long = 0
         this.selectionKey.selectAlways(Interests.OP_READ){
 
-            buffer.setCursor(0)
-            buffer.setLimit(buffer.capacity())
-            val result = read(this.selectionKey.socket,buffer.nativePointer(),buffer.capacity().signExtend<size_t>()).toInt()
+            buffer.reset()
+            val result = read(this.selectionKey.socket,buffer.nativePointer(),buffer.capacity.signExtend<size_t>()).toInt()
 
             if(result == -1 && posix_errno() != EAGAIN){
                 read = -1
                 false
             }else{
                 read += result
-                buffer.setLimit(result)
+                buffer.limit = result
+                buffer.cursor = result
                 operation(buffer)
             }
         }
@@ -121,25 +121,26 @@ actual class SuspendingClientSocket{
         return read
     }
 
-    actual suspend fun read(buffer: MultiplateformBuffer) : Int {
+    actual suspend fun read(buffer: MultiplatformBuffer) : Int {
         if(this.isClosed) return -1
 
         this.selectionKey.select(Interests.OP_READ)
 
         buffer as NativeMultiplatformBuffer
 
-        val result = read(this.selectionKey.socket,buffer.nativePointer()+buffer.getCursor(),(buffer.capacity()-buffer.getCursor()).signExtend<size_t>()).toInt()
+        val result = read(this.selectionKey.socket,buffer.nativePointer()+buffer.cursor,(buffer.limit-buffer.cursor).signExtend<size_t>()).toInt()
 
         if(result == -1 || result == 0){
             this.close()
             return -1
         }
 
-        buffer.setLimit(result)
+        buffer.limit = result
+        buffer.cursor = result
         return result
     }
 
-    actual suspend fun read(buffer: MultiplateformBuffer, minToRead : Int) : Int {
+    actual suspend fun read(buffer: MultiplatformBuffer, minToRead : Int) : Int {
         if(this.isClosed) return -1
 
         buffer as NativeMultiplatformBuffer
@@ -147,13 +148,13 @@ actual class SuspendingClientSocket{
         var read = 0
 
         this.selectionKey.selectAlways(Interests.OP_READ){
-            val result = read(this.selectionKey.socket,buffer.nativePointer()+buffer.getCursor(),(buffer.capacity()-buffer.getCursor()).signExtend<size_t>()).toInt()
+            val result = read(this.selectionKey.socket,buffer.nativePointer()+buffer.cursor,(buffer.limit-buffer.cursor).signExtend<size_t>()).toInt()
 
             if(result == -1){
                 read = -1
                 false
             }else{
-                buffer.setCursor(buffer.getCursor() + result)
+                buffer.cursor = buffer.cursor + result
                 read += result
                 read < minToRead
             }
@@ -164,24 +165,24 @@ actual class SuspendingClientSocket{
             return -1
         }
 
-        buffer.setLimit(read)
+        buffer.limit = read
 
         return read
     }
 
-    actual fun asynchronousRead(buffer: MultiplateformBuffer) : Deferred<Int> {
+    actual fun asynchronousRead(buffer: MultiplatformBuffer) : Deferred<Int> {
         return GlobalScope.async{
             this@SuspendingClientSocket.read(buffer)
         }
     }
 
-    actual fun asynchronousRead(buffer: MultiplateformBuffer,  minToRead : Int) : Deferred<Int> {
+    actual fun asynchronousRead(buffer: MultiplatformBuffer,  minToRead : Int) : Deferred<Int> {
         return GlobalScope.async{
             this@SuspendingClientSocket.read(buffer,minToRead)
         }
     }
 
-    actual suspend fun write(buffer: MultiplateformBuffer) : Boolean {
+    actual suspend fun write(buffer: MultiplatformBuffer) : Boolean {
         if(this.isClosed) return false
 
         val deferred = CompletableDeferred<Boolean>()
@@ -189,7 +190,7 @@ actual class SuspendingClientSocket{
         return deferred.await()
     }
 
-    actual fun asynchronousWrite(buffer: MultiplateformBuffer) : Deferred<Boolean> {
+    actual fun asynchronousWrite(buffer: MultiplatformBuffer) : Deferred<Boolean> {
         return GlobalScope.async{
             this@SuspendingClientSocket.write(buffer)
         }
@@ -199,23 +200,23 @@ actual class SuspendingClientSocket{
         for(request in channel){
 
             val buffer = request.data as NativeMultiplatformBuffer
-            buffer.setCursor(0)
+            buffer.cursor = 0
 
             //fail fast for empty buffers
-            if(buffer.size() == 0){
+            if(buffer.capacity == 0){
                 request.deferred.complete(true)
                 continue
             }
 
-            if(buffer.size() > sendBufferSize){
+            if(buffer.limit > sendBufferSize){
                 selectionKey.selectAlways(Interests.OP_WRITE){
-                    val result = write(selectionKey.socket,buffer.nativePointer()+buffer.getCursor(),buffer.remaining().signExtend<size_t>()).toInt()
+                    val result = write(selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().signExtend<size_t>()).toInt()
 
                     if(result == -1){
                         request.deferred.complete(false)
                         false
                     }else{
-                        buffer.setCursor(buffer.getCursor()+result)
+                        buffer.cursor = buffer.cursor+result
                         buffer.remaining() > 0
                     }
                 }
@@ -228,7 +229,7 @@ actual class SuspendingClientSocket{
             }else{
                 while (buffer.remaining() > 0){
 
-                    val result = write(selectionKey.socket,buffer.nativePointer()+buffer.getCursor(),buffer.remaining().signExtend<size_t>()).toInt()
+                    val result = write(selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().signExtend<size_t>()).toInt()
 
                     if(result == -1){
                         request.deferred.complete(false)
@@ -236,7 +237,7 @@ actual class SuspendingClientSocket{
                         continue
                     }
 
-                    buffer.setCursor(buffer.getCursor()+result)
+                    buffer.cursor = buffer.cursor + result
 
                     if(buffer.remaining() >= 0) selectionKey.select(Interests.OP_WRITE)
                 }
@@ -246,7 +247,7 @@ actual class SuspendingClientSocket{
     }
 }
 
-private class WriteRequest(val data : MultiplateformBuffer, val deferred : CompletableDeferred<Boolean>)
+private class WriteRequest(val data : MultiplatformBuffer, val deferred : CompletableDeferred<Boolean>)
 
 
 actual suspend fun createSuspendingClientSocket(address : String, port : Int ) : SuspendingClientSocket {

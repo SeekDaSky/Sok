@@ -1,9 +1,6 @@
 package Sok.Socket
 
-import Sok.Buffer.Buffer
-import Sok.Buffer.JSMultiplateformBuffer
-import Sok.Buffer.MultiplateformBuffer
-import Sok.Buffer.allocMultiplateformBuffer
+import Sok.Buffer.*
 import Sok.Exceptions.ConnectionRefusedException
 import Sok.Sok.net
 import kotlinx.coroutines.experimental.*
@@ -96,7 +93,7 @@ actual class SuspendingClientSocket{
             this.isClosed = true
 
             val deferred = CompletableDeferred<Boolean>()
-            this.writeChannel.send(WriteRequest(allocMultiplateformBuffer(0),deferred))
+            this.writeChannel.send(WriteRequest(allocMultiplatformBuffer(0),deferred))
             this.writeChannel.close()
             deferred.await()
 
@@ -123,38 +120,27 @@ actual class SuspendingClientSocket{
 
     /**
      * As nodeJS directly give us a buffer when we read from a socket, we have to copy data from the given buffer into
-     * the user buffer. In order to avoid data copy, the MultiplatformBuffer is lazy and will wait to be explicitely used to allocate
-     * memory. Because of this behavior we can directly put the buffer returned by read() into the multiplatform buffer
-     * and still be efficient. But as the developer "allocated" a specific amount of memory we can't use this trick if the
-     * read buffer is larger than the user buffer. In this case we copy the needed data, store at what point we are in this buffer
-     * and put the buffer back in the socket with the "unshift()" method.
-     *
-     * TODO: implement a way to use only parts of the buffer in the multiplatform buffer to avoid copies even more
+     * the user buffer.
      */
-    private fun readInto(buffer : JSMultiplateformBuffer, minToRead: Int = 0) : Boolean{
+    private fun readInto(buffer : JSMultiplatformBuffer) : Boolean{
         //read from the socket, with a minimum or not
-        val internalBuffer : Buffer
-        if(minToRead != 0){
-            internalBuffer = this.socket.read(minToRead + this.indexInStream)
-        }else{
-            internalBuffer = this.socket.read()
-        }
+        val internalBuffer : Buffer? = this.socket.read()
 
-        //if nothing was read, return false
         if(internalBuffer == null){
             return false
         }
 
         //if we did not unshit data and that the buffer is small enough to fit in the MultiplatformBuffer, swap the backbuffer
-        if(internalBuffer.length <= buffer.getLazySize() && this.indexInStream == 0){
-            buffer.swapBackBuffers(internalBuffer)
+        if(internalBuffer.length <= buffer.limit && this.indexInStream == 0){
+            buffer.limit = internalBuffer.copy(buffer.nativeBuffer(),buffer.cursor,0,internalBuffer.length) + buffer.cursor
+            buffer.cursor = buffer.limit
         }else{
             //transfer data
-            buffer.swapBackBuffers(internalBuffer,this.indexInStream,min(internalBuffer.length,buffer.getLazySize()+this.indexInStream))
-
+            buffer.limit = internalBuffer.copy(buffer.nativeBuffer(),buffer.cursor,this.indexInStream,min(internalBuffer.length,buffer.remaining())) + buffer.cursor
+            buffer.cursor = buffer.limit
             //if we read all the internal buffer, discard, else unshift it and update indexInStream
-            if(this.indexInStream + buffer.size() != internalBuffer.length){
-                this.indexInStream += buffer.size()
+            if(this.indexInStream + buffer.limit != internalBuffer.length){
+                this.indexInStream += buffer.limit
                 this.socket.unshift(internalBuffer)
             }else{
                 this.indexInStream = 0
@@ -186,21 +172,21 @@ actual class SuspendingClientSocket{
      * of doing a read() loop, it can use the bulkRead method to register a function that will stay registered to the
      * "readable" event and that will be called each time there is data tor read
      */
-    actual suspend fun bulkRead(buffer : MultiplateformBuffer, operation : (buffer : MultiplateformBuffer) -> Boolean) : Long{
+    actual suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer) -> Boolean) : Long{
         if(this.isClosed) return -1
 
         var total = 0L
-        (buffer as JSMultiplateformBuffer)
+        (buffer as JSMultiplatformBuffer)
 
         this.registerReadable{
             //read while there is data
             while (this.readInto(buffer)) {
-                total += buffer.size()
+                total += buffer.limit
                 //if the operation returns false, unregister
                 if (!operation(buffer)) {
                     return@registerReadable false
                 } else {
-                    buffer.setCursor(0)
+                    buffer.reset()
                 }
             }
 
@@ -213,56 +199,54 @@ actual class SuspendingClientSocket{
     /**
      * read data into the given buffer
      */
-    actual suspend fun read(buffer: MultiplateformBuffer) : Int{
+    actual suspend fun read(buffer: MultiplatformBuffer) : Int{
         if(this.isClosed) return -1
 
         this.registerReadable {
-            (buffer as JSMultiplateformBuffer)
+            (buffer as JSMultiplatformBuffer)
             this.readInto(buffer)
             false
         }
 
-        return buffer.size()
+        return buffer.limit
     }
 
-    actual suspend fun read(buffer: MultiplateformBuffer, minToRead : Int) : Int{
+    actual suspend fun read(buffer: MultiplatformBuffer, minToRead : Int) : Int{
         if(this.isClosed) return -1
 
-        //as read(min) will return null if the socket does not contain enough data, we loop until the data is here
-        var remaining = minToRead
-        var tmpBuf = Buffer.alloc(0)
+        //backup buffer limit
+        val limit = buffer.limit
         this.registerReadable {
-            //most unefficient line in history but I can't find any other way
-            tmpBuf = Buffer.concat(listOf(tmpBuf,this.socket.read(min(remaining,this.socket.readableLength))).toTypedArray())
-            remaining = minToRead - tmpBuf.length
+            //if we are reading in multiple time, we have to set the limit to the original limit of the buffer each time
+            buffer.limit = limit
+            (buffer as JSMultiplatformBuffer)
+            this.readInto(buffer)
 
-            tmpBuf.length < minToRead
+            buffer.limit < minToRead
         }
 
-        (buffer as JSMultiplateformBuffer)
-        buffer.swapBackBuffers(tmpBuf)
-        return buffer.size()
+        return buffer.limit
     }
 
-    actual fun asynchronousRead(buffer: MultiplateformBuffer) : Deferred<Int>{
+    actual fun asynchronousRead(buffer: MultiplatformBuffer) : Deferred<Int>{
         return GlobalScope.async {
             this@SuspendingClientSocket.read(buffer)
         }
     }
 
-    actual fun asynchronousRead(buffer: MultiplateformBuffer,  minToRead : Int) : Deferred<Int>{
+    actual fun asynchronousRead(buffer: MultiplatformBuffer,  minToRead : Int) : Deferred<Int>{
         return GlobalScope.async {
             this@SuspendingClientSocket.read(buffer,minToRead)
         }
     }
 
-    actual suspend fun write(buffer: MultiplateformBuffer) : Boolean{
+    actual suspend fun write(buffer: MultiplatformBuffer) : Boolean{
         if(this.isClosed) return false
 
         return this.asynchronousWrite(buffer).await()
     }
 
-    actual fun asynchronousWrite(buffer: MultiplateformBuffer) : Deferred<Boolean>{
+    actual fun asynchronousWrite(buffer: MultiplatformBuffer) : Deferred<Boolean>{
         val deferred = CompletableDeferred<Boolean>()
         if(!this.writeChannel.offer(WriteRequest(buffer,deferred))) deferred.complete(false)
         return deferred
@@ -275,14 +259,14 @@ actual class SuspendingClientSocket{
         for (request in channel){
 
             //close signal received
-            if(request.data.size() == 0){
+            if(request.data.capacity == 0){
                 request.deferred.complete(true)
                 continue
             }
 
-            request.data.setCursor(0)
+            request.data.cursor = 0
             try {
-                val buf = (request.data as JSMultiplateformBuffer).nativeBuffer()
+                val buf = (request.data as JSMultiplatformBuffer).nativeBuffer()
 
                 suspendCancellableCoroutine<Unit> {
                     this@SuspendingClientSocket.writingContinuation = it
@@ -304,7 +288,7 @@ actual class SuspendingClientSocket{
 
 }
 
-class WriteRequest(val data: MultiplateformBuffer, val deferred: CompletableDeferred<Boolean>)
+class WriteRequest(val data: MultiplatformBuffer, val deferred: CompletableDeferred<Boolean>)
 
 actual suspend fun createSuspendingClientSocket(address : String, port : Int ) : SuspendingClientSocket{
     return SuspendingClientSocket(

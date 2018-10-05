@@ -1,7 +1,7 @@
 package Sok
 
-import Sok.Buffer.MultiplateformBuffer
-import Sok.Buffer.allocMultiplateformBuffer
+import Sok.Buffer.MultiplatformBuffer
+import Sok.Buffer.allocMultiplatformBuffer
 import Sok.Socket.SuspendingServerSocket
 import Sok.Socket.createSuspendingClientSocket
 import Sok.Sok.setTimeout
@@ -12,7 +12,7 @@ val dataSize = 16777216
 val readSpeedList = mutableListOf<Double>()
 val writeSpeedList = mutableListOf<Double>()
 
-fun main(args: Array<String>){
+fun nomain(args: Array<String>){
 
     val socket = SuspendingServerSocket("localhost",9999)
 
@@ -25,14 +25,14 @@ fun main(args: Array<String>){
 
                 while(!socket.isClosed){
 
-                    val buffer = allocMultiplateformBuffer(65536)
+                    val buffer = allocMultiplatformBuffer(65536)
 
                     val starttime = Date.now()
                     var received = 0
 
                     socket.bulkRead(buffer){
 
-                        received += it.size()
+                        received += it.limit
 
                         received >= dataSize
                     }
@@ -111,12 +111,12 @@ fun waitWrite(){
     },500)
 }
 
-fun stubBuffer() : MultiplateformBuffer {
+fun stubBuffer() : MultiplatformBuffer {
     val buf = ByteArray(dataSize){
         it.toByte()
     }
 
-    val bb = allocMultiplateformBuffer(buf.size)
+    val bb = allocMultiplatformBuffer(buf.size)
     bb.putBytes(buf)
 
     return bb

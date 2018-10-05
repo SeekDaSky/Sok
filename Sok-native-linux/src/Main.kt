@@ -24,7 +24,7 @@ fun main(args: Array<String>) = runBlocking{
 
             GlobalScope.launch() {
 
-                val buffer = allocMultiplateformBuffer(dataSize)
+                val buffer = allocMultiplatformBuffer(dataSize)
 
                 val start = nativeHeap.alloc<timeval>()
                 val stop = nativeHeap.alloc<timeval>()
@@ -36,7 +36,7 @@ fun main(args: Array<String>) = runBlocking{
 
                     socket.bulkRead(buffer){
 
-                        received += it.size()
+                        received += it.limit
 
                         if(received >= dataSize){
                             received = 0
