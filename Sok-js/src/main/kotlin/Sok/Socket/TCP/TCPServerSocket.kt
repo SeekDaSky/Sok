@@ -1,12 +1,13 @@
-package Sok.Socket
+package Sok.Socket.TCP
 
+import Sok.Socket.TCP.TCPClientSocket
 import Sok.Sok.net
 import kotlinx.coroutines.experimental.CoroutineScope
 import kotlinx.coroutines.experimental.Dispatchers
 import kotlinx.coroutines.experimental.channels.Channel
 import kotlinx.coroutines.experimental.launch
 
-actual class SuspendingServerSocket{
+actual class TCPServerSocket{
 
     //socket state
     actual var isClosed = true
@@ -17,7 +18,7 @@ actual class SuspendingServerSocket{
 
     //used to pass from a callback based accept() to a suspending one
     val acceptCoroutineScope = CoroutineScope(Dispatchers.Unconfined)
-    val acceptChannel = Channel<SuspendingClientSocket>()
+    val acceptChannel = Channel<TCPClientSocket>()
 
     //on close handler
     var onClose : () -> Unit = {}
@@ -29,7 +30,7 @@ actual class SuspendingServerSocket{
             //pause the socket before everything
             socket.pause()
             this.acceptCoroutineScope.launch {
-                this@SuspendingServerSocket.acceptChannel.send(SuspendingClientSocket(socket))
+                this@TCPServerSocket.acceptChannel.send(Sok.Socket.TCP.TCPClientSocket(socket))
             }
         }
 
@@ -38,7 +39,7 @@ actual class SuspendingServerSocket{
         this.isClosed = false
     }
 
-    actual suspend fun accept() : SuspendingClientSocket{
+    actual suspend fun accept() : TCPClientSocket {
         require(!this.isClosed){
             "the Socket is closed"
         }

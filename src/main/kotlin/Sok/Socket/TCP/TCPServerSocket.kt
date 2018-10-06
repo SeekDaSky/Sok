@@ -1,6 +1,8 @@
-package Sok.Socket
+package Sok.Socket.TCP
 
-expect class SuspendingServerSocket{
+import kotlinx.coroutines.experimental.CoroutineScope
+
+expect class TCPServerSocket{
 
     /** state of the socket */
     var isClosed : Boolean
@@ -14,7 +16,7 @@ expect class SuspendingServerSocket{
     /**
      * Accept a client socket. The method will suspend until there is a client to accept
      */
-    suspend fun accept() : SuspendingClientSocket
+    suspend fun accept() : TCPClientSocket
 
     /**
      * handler called when the socket close (expectedly or not)
@@ -26,3 +28,7 @@ expect class SuspendingServerSocket{
      */
     fun close()
 }
+
+/*
+expect fun createTCPServer(address: String, port: Int, serverFunction : suspend (context : TCPServerContext) -> Unit )
+sealed class TCPServerContext(server : TCPServerSocket, scope: CoroutineScope)*/

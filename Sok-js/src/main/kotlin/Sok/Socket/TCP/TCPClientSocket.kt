@@ -1,12 +1,10 @@
-package Sok.Socket
+package Sok.Socket.TCP
 
 import Sok.Buffer.*
 import Sok.Exceptions.ConnectionRefusedException
 import Sok.Sok.net
 import kotlinx.coroutines.experimental.*
 import kotlinx.coroutines.experimental.channels.Channel
-import org.khronos.webgl.Int8Array
-import org.khronos.webgl.Uint8Array
 import kotlin.coroutines.experimental.suspendCoroutine
 import kotlin.math.min
 
@@ -14,7 +12,7 @@ import kotlin.math.min
  * Use the Net.socket package, as the sockets in node are also a Duplex Stream we use the stream oriented
  * approach rather that the event oriented one
  */
-actual class SuspendingClientSocket{
+actual class TCPClientSocket{
 
     //client IP
     actual val clientIP = ""
@@ -50,26 +48,26 @@ actual class SuspendingClientSocket{
          */
         socket.on("end"){
             GlobalScope.launch {
-                this@SuspendingClientSocket.close()
+                this@TCPClientSocket.close()
             }
         }
 
         socket.on("close"){
             GlobalScope.launch {
-                this@SuspendingClientSocket.close()
+                this@TCPClientSocket.close()
             }
         }
 
         socket.on("error"){
             GlobalScope.launch {
-                this@SuspendingClientSocket.close()
+                this@TCPClientSocket.close()
             }
         }
 
         //start the write actor and bind the operation in case of failure (we close the socket)
         this.writeCoroutine = this.writeActor(this.socket,this.writeChannel){
             GlobalScope.launch(Dispatchers.Unconfined) {
-                this@SuspendingClientSocket.close()
+                this@TCPClientSocket.close()
             }
         }
 
@@ -93,7 +91,7 @@ actual class SuspendingClientSocket{
             this.isClosed = true
 
             val deferred = CompletableDeferred<Boolean>()
-            this.writeChannel.send(WriteRequest(allocMultiplatformBuffer(0),deferred))
+            this.writeChannel.send(WriteRequest(allocMultiplatformBuffer(0), deferred))
             this.writeChannel.close()
             deferred.await()
 
@@ -230,13 +228,13 @@ actual class SuspendingClientSocket{
 
     actual fun asynchronousRead(buffer: MultiplatformBuffer) : Deferred<Int>{
         return GlobalScope.async {
-            this@SuspendingClientSocket.read(buffer)
+            this@TCPClientSocket.read(buffer)
         }
     }
 
     actual fun asynchronousRead(buffer: MultiplatformBuffer,  minToRead : Int) : Deferred<Int>{
         return GlobalScope.async {
-            this@SuspendingClientSocket.read(buffer,minToRead)
+            this@TCPClientSocket.read(buffer,minToRead)
         }
     }
 
@@ -248,7 +246,7 @@ actual class SuspendingClientSocket{
 
     actual fun asynchronousWrite(buffer: MultiplatformBuffer) : Deferred<Boolean>{
         val deferred = CompletableDeferred<Boolean>()
-        if(!this.writeChannel.offer(WriteRequest(buffer,deferred))) deferred.complete(false)
+        if(!this.writeChannel.offer(WriteRequest(buffer, deferred))) deferred.complete(false)
         return deferred
     }
 
@@ -269,9 +267,9 @@ actual class SuspendingClientSocket{
                 val buf = (request.data as JSMultiplatformBuffer).nativeBuffer()
 
                 suspendCancellableCoroutine<Unit> {
-                    this@SuspendingClientSocket.writingContinuation = it
+                    this@TCPClientSocket.writingContinuation = it
                     socket.write(buf){
-                        this@SuspendingClientSocket.writingContinuation = null
+                        this@TCPClientSocket.writingContinuation = null
                         it.resume(Unit)
                     }
                 }
@@ -290,24 +288,24 @@ actual class SuspendingClientSocket{
 
 class WriteRequest(val data: MultiplatformBuffer, val deferred: CompletableDeferred<Boolean>)
 
-actual suspend fun createSuspendingClientSocket(address : String, port : Int ) : SuspendingClientSocket{
-    return SuspendingClientSocket(
-        suspendCoroutine {
-            //create a socket but don't connect it yet
-            val socket = net.Socket(js("{allowHalfOpen:true,readable:true,writable:true}"))
+actual suspend fun createTCPClientSocket(address : String, port : Int ) : TCPClientSocket {
+    return Sok.Socket.TCP.TCPClientSocket(
+            suspendCoroutine {
+                //create a socket but don't connect it yet
+                val socket = net.Socket(js("{allowHalfOpen:true,readable:true,writable:true}"))
 
-            //bind the error listener to catch connetion refused errors
-            socket.on("error"){
-                it.resumeWithException(ConnectionRefusedException())
-            }
+                //bind the error listener to catch connetion refused errors
+                socket.on("error") {
+                    it.resumeWithException(ConnectionRefusedException())
+                }
 
-            //connect and wait for connection event
-            socket.connect(port,address)
-            socket.on("connect"){
-                //remove connection refused handler
-                socket.removeAllListeners("error")
-                it.resume(socket)
+                //connect and wait for connection event
+                socket.connect(port, address)
+                socket.on("connect") {
+                    //remove connection refused handler
+                    socket.removeAllListeners("error")
+                    it.resume(socket)
+                }
             }
-        }
     )
 }

@@ -1,7 +1,7 @@
 import Sok.Buffer.BufferPool
 import Sok.Buffer.MultiplatformBuffer
 import Sok.Buffer.allocDirectMultiplatformBuffer
-import Sok.Socket.SuspendingServerSocket
+import Sok.Socket.TCP.TCPServerSocket
 import kotlinx.coroutines.experimental.*
 val dataSize = 16777216
 val bufferPool = BufferPool(16,65536){
@@ -12,7 +12,7 @@ fun main(args: Array<String>){
 
     val readSpeedList = mutableListOf<Double>()
 
-    val socket = SuspendingServerSocket("localhost",9999)
+    val socket = TCPServerSocket("localhost", 9999)
 
     GlobalScope.launch(Dispatchers.IO) {
         while(!socket.isClosed) {

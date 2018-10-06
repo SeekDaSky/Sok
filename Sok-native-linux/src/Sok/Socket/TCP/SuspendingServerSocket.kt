@@ -1,4 +1,4 @@
-package Sok.Socket
+package Sok.Socket.TCP
 
 import Sok.Selector.*
 import kotlinx.atomicfu.AtomicBoolean
@@ -6,7 +6,7 @@ import kotlinx.atomicfu.atomic
 import kotlinx.cinterop.*
 import platform.posix.*
 
-actual class SuspendingServerSocket{
+actual class TCPServerSocket{
 
     private val _isClosed : AtomicBoolean = atomic(false)
     actual var isClosed : Boolean = false
@@ -74,14 +74,14 @@ actual class SuspendingServerSocket{
 
     }
 
-    actual suspend fun accept() : SuspendingClientSocket {
+    actual suspend fun accept() : TCPClientSocket {
         //wait for event
         this.selectionKey.select(Interests.OP_READ)
 
         val clientSocket = accept(this.selectionKey.socket,null,null)
         Sok.Utils.makeNonBlocking(clientSocket)
 
-        return SuspendingClientSocket(clientSocket,Selector.defaultSelector)
+        return TCPClientSocket(clientSocket,Selector.defaultSelector)
 
     }
 

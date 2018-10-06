@@ -1,25 +1,23 @@
-package Sok.Socket
+package Sok.Socket.TCP
 
 import Sok.Buffer.*
 import Sok.Exceptions.ConnectionRefusedException
 import Sok.Selector.Selector
 import Sok.Selector.SelectorPool
 import Sok.Selector.SuspentionMap
-import com.sun.org.apache.xpath.internal.operations.Bool
 import kotlinx.atomicfu.AtomicRef
 import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.experimental.*
 import kotlinx.coroutines.experimental.channels.*
 import java.net.InetSocketAddress
 import java.net.StandardSocketOptions
-import java.nio.channels.ClosedChannelException
 import java.nio.channels.SelectionKey
 import java.nio.channels.SocketChannel
 
 /**
  * The actual documentation and comments are located in the common module class
  */
-actual class SuspendingClientSocket {
+actual class TCPClientSocket {
 
     //socket related data
     private val channel: SocketChannel
@@ -67,13 +65,13 @@ actual class SuspendingClientSocket {
         //launch write/read actor
         this.writeActor = this.writeActor(this.suspentionMap,this.channel){
             runBlocking(Dispatchers.IO) {
-                this@SuspendingClientSocket.close()
+                this@TCPClientSocket.close()
             }
         }
 
         this.readActor = this.readActor(this.suspentionMap,this.channel){
             runBlocking(Dispatchers.IO) {
-                this@SuspendingClientSocket.close()
+                this@TCPClientSocket.close()
             }
         }
 
@@ -87,8 +85,8 @@ actual class SuspendingClientSocket {
         if(this._isClosed.compareAndSet(false,true)){
             //wait for the write actor to consume everything in the channel
             runBlocking(Dispatchers.IO) {
-                val deferred = this@SuspendingClientSocket.asynchronousWrite(allocMultiplatformBuffer(0))
-                this@SuspendingClientSocket.writeActor.close()
+                val deferred = this@TCPClientSocket.asynchronousWrite(allocMultiplatformBuffer(0))
+                this@TCPClientSocket.writeActor.close()
                 deferred.await()
             }
 
@@ -100,7 +98,7 @@ actual class SuspendingClientSocket {
 
     actual fun forceClose(){
         if(this._isClosed.compareAndSet(false,true)){
-            this@SuspendingClientSocket.writeActor.close()
+            this@TCPClientSocket.writeActor.close()
             this.suspentionMap.close()
             this.channel.close()
             this.onClose()
@@ -113,7 +111,7 @@ actual class SuspendingClientSocket {
         }
 
         val deferred = CompletableDeferred<Long>()
-        this.readActor.send(ReadAlwaysRequest(buffer,deferred,true,operation))
+        this.readActor.send(ReadAlwaysRequest(buffer, deferred, true, operation))
         return deferred.await()
     }
 
@@ -123,7 +121,7 @@ actual class SuspendingClientSocket {
         }
 
         val deferred = CompletableDeferred<Int>()
-        this.readActor.send(ReadOnceRequest(buffer,deferred))
+        this.readActor.send(ReadOnceRequest(buffer, deferred))
         return deferred.await()
     }
 
@@ -135,13 +133,13 @@ actual class SuspendingClientSocket {
         val deferred = CompletableDeferred<Long>()
 
         //loop until the cursor has passed the minimum
-        val request = ReadAlwaysRequest(buffer,deferred,false){
-            if(it.cursor >= minToRead){
+        val request = ReadAlwaysRequest(buffer, deferred, false) {
+            if (it.cursor >= minToRead) {
                 (it as JVMMultiplatformBuffer).nativeBuffer().flip()
                 it.limit = it.nativeBuffer().limit()
                 it.cursor = 0
                 true
-            }else{
+            } else {
                 false
             }
         }
@@ -156,7 +154,7 @@ actual class SuspendingClientSocket {
         }
 
         val deferred = CompletableDeferred<Int>()
-        this.readActor.sendBlocking(ReadOnceRequest(buffer,deferred))
+        this.readActor.sendBlocking(ReadOnceRequest(buffer, deferred))
         return deferred
     }
 
@@ -168,13 +166,13 @@ actual class SuspendingClientSocket {
         val deferred = CompletableDeferred<Long>()
 
         //loop until the cursor has passed the minimum
-        val request = ReadAlwaysRequest(buffer,deferred,false){
-            if(it.cursor >= minToRead){
+        val request = ReadAlwaysRequest(buffer, deferred, false) {
+            if (it.cursor >= minToRead) {
                 (it as JVMMultiplatformBuffer).nativeBuffer().flip()
                 it.limit = it.nativeBuffer().limit()
                 it.cursor = 0
                 true
-            }else{
+            } else {
                 false
             }
         }
@@ -192,7 +190,7 @@ actual class SuspendingClientSocket {
         }
 
         val deferred = CompletableDeferred<Boolean>()
-        this.writeActor.send(WriteRequest(buffer,deferred))
+        this.writeActor.send(WriteRequest(buffer, deferred))
 
         return deferred.await()
     }
@@ -203,7 +201,7 @@ actual class SuspendingClientSocket {
         }
 
         val deferred = CompletableDeferred<Boolean>()
-        this.writeActor.sendBlocking(WriteRequest(buffer,deferred))
+        this.writeActor.sendBlocking(WriteRequest(buffer, deferred))
 
         return deferred
     }
@@ -320,15 +318,15 @@ class ReadAlwaysRequest(buffer: MultiplatformBuffer, val deferred: CompletableDe
  * This function will create a client socket with that use the default selector, it's fine as long as the selector
  * is ont saturated. If so it's important to create a SelectorPool and use it
  */
-actual suspend fun createSuspendingClientSocket(address : String, port : Int ) : SuspendingClientSocket{
+actual suspend fun createTCPClientSocket(address : String, port : Int ) : TCPClientSocket {
 
-    return createSuspendingClientSocket(address,port, Selector.defaultSelector)
+    return createTCPClientSocket(address, port, Selector.defaultSelector)
 }
 
 /**
  * Create a client socket from scratch
  */
-suspend fun createSuspendingClientSocket(address: String, port: Int, selector: Selector) : SuspendingClientSocket{
+suspend fun createTCPClientSocket(address: String, port: Int, selector: Selector) : TCPClientSocket {
     val socket = SocketChannel.open()
     socket.configureBlocking(false)
     socket.connect(InetSocketAddress(address,port))
@@ -343,5 +341,5 @@ suspend fun createSuspendingClientSocket(address: String, port: Int, selector: S
         throw ConnectionRefusedException()
     }
 
-    return SuspendingClientSocket(socket, selector)
+    return Sok.Socket.TCP.TCPClientSocket(socket, selector)
 }

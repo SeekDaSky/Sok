@@ -1,8 +1,9 @@
-package Sok.Socket
+package Sok.Socket.TCP
 
 import Sok.Buffer.BufferPool
 import Sok.Selector.SelectorPool
 import Sok.Selector.SuspentionMap
+import Sok.Socket.TCP.TCPClientSocket
 import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.experimental.*
 import java.net.InetSocketAddress
@@ -11,7 +12,7 @@ import java.nio.channels.ClosedChannelException
 import java.nio.channels.SelectionKey
 import java.nio.channels.ServerSocketChannel
 
-actual class SuspendingServerSocket {
+actual class TCPServerSocket {
 
     //default buffer size
     val BUFSIZE = 65536
@@ -63,23 +64,23 @@ actual class SuspendingServerSocket {
             selectorPool.getLessbusySelector()
         }
 
-        this.suspentionMap = SuspentionMap(selector,this@SuspendingServerSocket.channel)
+        this.suspentionMap = SuspentionMap(selector,this@TCPServerSocket.channel)
 
         //build bufferPool
         this.bufferPool = BufferPool(bufferPoolSize,BUFSIZE)
 
     }
 
-    actual suspend fun accept() : SuspendingClientSocket{
+    actual suspend fun accept() : TCPClientSocket {
         return withContext(Dispatchers.IO){
-            this@SuspendingServerSocket.suspentionMap.selectOnce(SelectionKey.OP_ACCEPT)
+            this@TCPServerSocket.suspentionMap.selectOnce(SelectionKey.OP_ACCEPT)
             try{
-                val channel = this@SuspendingServerSocket.channel.accept()
+                val channel = this@TCPServerSocket.channel.accept()
                 channel.setOption(StandardSocketOptions.SO_RCVBUF,BUFSIZE)
-                 SuspendingClientSocket(channel,this@SuspendingServerSocket.selectorPool)
+                Sok.Socket.TCP.TCPClientSocket(channel, this@TCPServerSocket.selectorPool)
 
             }catch (e : ClosedChannelException){
-                this@SuspendingServerSocket.close()
+                this@TCPServerSocket.close()
                 throw e
             }
 

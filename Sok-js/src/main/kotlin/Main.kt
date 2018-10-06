@@ -2,8 +2,8 @@ package Sok
 
 import Sok.Buffer.MultiplatformBuffer
 import Sok.Buffer.allocMultiplatformBuffer
-import Sok.Socket.SuspendingServerSocket
-import Sok.Socket.createSuspendingClientSocket
+import Sok.Socket.TCP.TCPServerSocket
+import Sok.Socket.TCP.createTCPClientSocket
 import Sok.Sok.setTimeout
 import kotlinx.coroutines.experimental.*
 import kotlin.js.Date
@@ -14,7 +14,7 @@ val writeSpeedList = mutableListOf<Double>()
 
 fun nomain(args: Array<String>){
 
-    val socket = SuspendingServerSocket("localhost",9999)
+    val socket = TCPServerSocket("localhost", 9999)
 
     GlobalScope.launch(Dispatchers.Default) {
         while(!socket.isClosed) {
@@ -68,7 +68,7 @@ fun Notmain(args: Array<String>){
         val numberOfClients = 1
 
         (1..numberOfClients).forEach {
-            val s = createSuspendingClientSocket("localhost", 9999)
+            val s = createTCPClientSocket("localhost", 9999)
 
             launch {
                 val buf = stubBuffer()

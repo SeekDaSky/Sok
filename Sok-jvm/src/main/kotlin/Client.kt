@@ -1,5 +1,5 @@
 
-import Sok.Socket.createSuspendingClientSocket
+import Sok.Socket.TCP.createTCPClientSocket
 import kotlinx.coroutines.experimental.delay
 import kotlinx.coroutines.experimental.launch
 import kotlinx.coroutines.experimental.runBlocking
@@ -12,7 +12,7 @@ fun main(args: Array<String>) = runBlocking {
     val writeSpeedList = mutableListOf<Double>()
 
     (1..numberOfClients).forEach {
-        val s = createSuspendingClientSocket("localhost",9999)
+        val s = createTCPClientSocket("localhost",9999)
 
         launch {
             val buf = stubBuffer()

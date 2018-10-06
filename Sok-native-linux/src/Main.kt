@@ -1,6 +1,6 @@
 import Sok.Buffer.*
 import Sok.Selector.*
-import Sok.Socket.SuspendingServerSocket
+import Sok.Socket.TCP.TCPServerSocket
 import kotlinx.coroutines.experimental.*
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.nativeHeap
@@ -15,7 +15,7 @@ fun main(args: Array<String>) = runBlocking{
 
     val readSpeedList = mutableListOf<Double>()
 
-    val server = SuspendingServerSocket("localhost",9999)
+    val server = TCPServerSocket("localhost",9999)
 
     val job = GlobalScope.launch() {
         while(!server.isClosed) {

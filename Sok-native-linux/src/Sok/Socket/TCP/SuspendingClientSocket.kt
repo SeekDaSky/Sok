@@ -1,4 +1,4 @@
-package Sok.Socket
+package Sok.Socket.TCP
 
 import Sok.Buffer.*
 import Sok.Selector.*
@@ -11,7 +11,7 @@ import kotlinx.coroutines.experimental.channels.*
 import kotlinx.cinterop.*
 import platform.posix.*
 
-actual class SuspendingClientSocket{
+actual class TCPClientSocket{
 
     actual val clientIP : String = ""
 
@@ -35,7 +35,7 @@ actual class SuspendingClientSocket{
         this.selectionKey = selector.register(socket)
         this.writeActor = this.createWriteActor(this.writeChannel,this.selectionKey, this.getSendBufferSize()){
             GlobalScope.launch{
-                this@SuspendingClientSocket.close()
+                this@TCPClientSocket.close()
             }
         }
     }
@@ -44,7 +44,7 @@ actual class SuspendingClientSocket{
         this.selectionKey = selectionKey
         this.writeActor = this.createWriteActor(this.writeChannel,this.selectionKey, this.getSendBufferSize()){
             GlobalScope.launch{
-                this@SuspendingClientSocket.close()
+                this@TCPClientSocket.close()
             }
         }
     }
@@ -54,7 +54,7 @@ actual class SuspendingClientSocket{
             val size = alloc<IntVar>()
             val len = alloc<socklen_tVar>()
             len.value = sizeOf<IntVar>().toInt()
-            getsockopt(this@SuspendingClientSocket.selectionKey.socket, SOL_SOCKET, SO_SNDBUF, size.ptr, len.ptr)
+            getsockopt(this@TCPClientSocket.selectionKey.socket, SOL_SOCKET, SO_SNDBUF, size.ptr, len.ptr)
             size.value
         }
     }
@@ -172,13 +172,13 @@ actual class SuspendingClientSocket{
 
     actual fun asynchronousRead(buffer: MultiplatformBuffer) : Deferred<Int> {
         return GlobalScope.async{
-            this@SuspendingClientSocket.read(buffer)
+            this@TCPClientSocket.read(buffer)
         }
     }
 
     actual fun asynchronousRead(buffer: MultiplatformBuffer,  minToRead : Int) : Deferred<Int> {
         return GlobalScope.async{
-            this@SuspendingClientSocket.read(buffer,minToRead)
+            this@TCPClientSocket.read(buffer,minToRead)
         }
     }
 
@@ -192,7 +192,7 @@ actual class SuspendingClientSocket{
 
     actual fun asynchronousWrite(buffer: MultiplatformBuffer) : Deferred<Boolean> {
         return GlobalScope.async{
-            this@SuspendingClientSocket.write(buffer)
+            this@TCPClientSocket.write(buffer)
         }
     }
 
@@ -250,7 +250,7 @@ actual class SuspendingClientSocket{
 private class WriteRequest(val data : MultiplatformBuffer, val deferred : CompletableDeferred<Boolean>)
 
 
-actual suspend fun createSuspendingClientSocket(address : String, port : Int ) : SuspendingClientSocket {
+actual suspend fun createTCPClientSocket(address : String, port : Int ) : TCPClientSocket {
     var socket : Int = 0
 
     memScoped{
@@ -310,5 +310,5 @@ actual suspend fun createSuspendingClientSocket(address : String, port : Int ) :
     val selectionKey = Selector.defaultSelector.register(socket)
     selectionKey.select(Interests.OP_WRITE)
 
-    return SuspendingClientSocket(selectionKey)
+    return TCPClientSocket(selectionKey)
 }

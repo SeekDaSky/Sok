@@ -1,9 +1,9 @@
-package Sok.Socket
+package Sok.Socket.TCP
 
 import Sok.Buffer.MultiplatformBuffer
 import kotlinx.coroutines.experimental.Deferred
 
-expect class SuspendingClientSocket{
+expect class TCPClientSocket{
 
     /** IP address of the client */
     val clientIP : String
@@ -84,4 +84,4 @@ expect class SuspendingClientSocket{
 /**
  * Create a client socket with the given address and port.
  */
-expect suspend fun createSuspendingClientSocket(address : String, port : Int ) : SuspendingClientSocket
+expect suspend fun createTCPClientSocket(address : String, port : Int ) : TCPClientSocket
