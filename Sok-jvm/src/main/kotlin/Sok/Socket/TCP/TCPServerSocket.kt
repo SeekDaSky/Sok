@@ -1,9 +1,9 @@
 package Sok.Socket.TCP
 
 import Sok.Buffer.BufferPool
+import Sok.Selector.Selector
 import Sok.Selector.SelectorPool
 import Sok.Selector.SuspentionMap
-import Sok.Socket.TCP.TCPClientSocket
 import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.experimental.*
 import java.net.InetSocketAddress
@@ -33,9 +33,6 @@ actual class TCPServerSocket {
     //channel
     private val channel : ServerSocketChannel
 
-    //coroutineScope
-    private val coroutineScope = CoroutineScope(Dispatchers.IO)
-
     //selector pool
     private val selectorPool : SelectorPool
 
@@ -45,9 +42,9 @@ actual class TCPServerSocket {
     //bufferPool
     private val bufferPool : BufferPool
 
-    actual constructor(address : String, port : Int) : this(address,port,1,8)
+    actual constructor(address : String, port : Int) : this(address,port,16)
 
-    constructor(address : String, port : Int, selectorPoolSize : Int, bufferPoolSize : Int){
+    constructor(address : String, port : Int, bufferPoolSize : Int){
         //open channel and register it
         this.channel = ServerSocketChannel.open()
         this.channel.bind(InetSocketAddress(address,port))
@@ -57,7 +54,7 @@ actual class TCPServerSocket {
         this.isClosed = false
 
         //build selector pool
-        this.selectorPool = SelectorPool(selectorPoolSize)
+        this.selectorPool = Selector.defaultSelectorPool
 
         //create suspention map
         val selector = runBlocking(Dispatchers.Unconfined) {
@@ -97,8 +94,18 @@ actual class TCPServerSocket {
             //stop selection loop
             this.suspentionMap.close()
             this.channel.close()
-            this.selectorPool.close()
             this.onClose.invoke()
+        }
+    }
+}
+
+actual fun createTCPServer(address: String, port: Int, scope : CoroutineScope, serverFunction : suspend (server : TCPServerSocket) -> Unit ){
+    val server = TCPServerSocket(address,port)
+    scope.launch{
+        try {
+            serverFunction.invoke(server)
+        } finally {
+            server.close()
         }
     }
 }

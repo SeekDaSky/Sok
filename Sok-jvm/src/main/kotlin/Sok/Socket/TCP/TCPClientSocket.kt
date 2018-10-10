@@ -83,12 +83,18 @@ actual class TCPClientSocket {
 
     actual suspend fun close(){
         if(this._isClosed.compareAndSet(false,true)){
+            /** If some coroutines are launched in the same scope as the server scope
+             * and that those coroutines want to write, the server might close before them
+             * even if they were launched before the actual close() statement, in order to
+             * avoid that, we yield first
+             */
+            yield()
+
             //wait for the write actor to consume everything in the channel
-            runBlocking(Dispatchers.IO) {
-                val deferred = this@TCPClientSocket.asynchronousWrite(allocMultiplatformBuffer(0))
-                this@TCPClientSocket.writeActor.close()
-                deferred.await()
-            }
+            val deferred = CompletableDeferred<Boolean>()
+            this.writeActor.send(WriteRequest(allocMultiplatformBuffer(0),deferred))
+            this.writeActor.close()
+            deferred.await()
 
             this.suspentionMap.close()
             this.channel.close()
@@ -148,42 +154,6 @@ actual class TCPClientSocket {
         return deferred.await().toInt()
     }
 
-    actual fun asynchronousRead(buffer: MultiplatformBuffer) : Deferred<Int>{
-        if(this.isClosed){
-            return CompletableDeferred(-1)
-        }
-
-        val deferred = CompletableDeferred<Int>()
-        this.readActor.sendBlocking(ReadOnceRequest(buffer, deferred))
-        return deferred
-    }
-
-    actual fun asynchronousRead(buffer: MultiplatformBuffer, minToRead : Int) : Deferred<Int>{
-        if(this.isClosed){
-            return CompletableDeferred(-1)
-        }
-
-        val deferred = CompletableDeferred<Long>()
-
-        //loop until the cursor has passed the minimum
-        val request = ReadAlwaysRequest(buffer, deferred, false) {
-            if (it.cursor >= minToRead) {
-                (it as JVMMultiplatformBuffer).nativeBuffer().flip()
-                it.limit = it.nativeBuffer().limit()
-                it.cursor = 0
-                true
-            } else {
-                false
-            }
-        }
-        this.readActor.sendBlocking(request)
-
-        //TODO: change this really ugly trick
-        return GlobalScope.async(Dispatchers.IO) {
-            deferred.await().toInt()
-        }
-    }
-
     actual suspend fun write(buffer: MultiplatformBuffer) : Boolean{
         if(this.writeActor.isClosedForSend){
             return false
@@ -193,17 +163,6 @@ actual class TCPClientSocket {
         this.writeActor.send(WriteRequest(buffer, deferred))
 
         return deferred.await()
-    }
-
-    actual fun asynchronousWrite(buffer: MultiplatformBuffer) : Deferred<Boolean>{
-        if(this.writeActor.isClosedForSend){
-            return CompletableDeferred(false)
-        }
-
-        val deferred = CompletableDeferred<Boolean>()
-        this.writeActor.sendBlocking(WriteRequest(buffer, deferred))
-
-        return deferred
     }
 
     /**
@@ -240,7 +199,7 @@ actual class TCPClientSocket {
 
                         //read and call the close lambda in case of a closed channel
                         val read = channel.read((request.buffer as JVMMultiplatformBuffer).nativeBuffer())
-                        if(read != 0){
+                        if(read > 0){
                             totalRead += read
 
                             if(request.shouldResetBuffer){
@@ -314,19 +273,13 @@ sealed class ReadRequest(val buffer: MultiplatformBuffer)
 class ReadOnceRequest(buffer: MultiplatformBuffer, val deferred: CompletableDeferred<Int>) : ReadRequest(buffer)
 class ReadAlwaysRequest(buffer: MultiplatformBuffer, val deferred: CompletableDeferred<Long>, val shouldResetBuffer : Boolean, val operation : (buffer : MultiplatformBuffer) -> Boolean) : ReadRequest(buffer)
 
-/**
- * This function will create a client socket with that use the default selector, it's fine as long as the selector
- * is ont saturated. If so it's important to create a SelectorPool and use it
- */
-actual suspend fun createTCPClientSocket(address : String, port : Int ) : TCPClientSocket {
-
-    return createTCPClientSocket(address, port, Selector.defaultSelector)
-}
 
 /**
- * Create a client socket from scratch
+ * This function will create a client socket with either the default selector pool if it is initialized of with a single default Selector
+ * The default SelectorPool is only initialized if a ServerSocket is create at some point, the goal is that a ClientSocket use the minimum
+ * number of selector possible
  */
-suspend fun createTCPClientSocket(address: String, port: Int, selector: Selector) : TCPClientSocket {
+actual suspend fun createTCPClientSocket(address: String, port: Int) : TCPClientSocket {
     val socket = SocketChannel.open()
     socket.configureBlocking(false)
     socket.connect(InetSocketAddress(address,port))
@@ -341,5 +294,10 @@ suspend fun createTCPClientSocket(address: String, port: Int, selector: Selector
         throw ConnectionRefusedException()
     }
 
-    return Sok.Socket.TCP.TCPClientSocket(socket, selector)
+    if(Selector.isSelectorPoolInit){
+        return Sok.Socket.TCP.TCPClientSocket(socket, Selector.defaultSelectorPool)
+    }else{
+        return Sok.Socket.TCP.TCPClientSocket(socket, Selector.defaultSelector)
+    }
+
 }

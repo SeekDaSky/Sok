@@ -17,6 +17,8 @@ actual class TCPClientSocket{
 
     private val closeHandler : AtomicRef<() -> Unit> = atomic({})
 
+    private val isReading : AtomicBoolean = atomic(false)
+
     private val _isClosed : AtomicBoolean = atomic(false)
     actual var isClosed : Boolean
         get() {
@@ -96,6 +98,9 @@ actual class TCPClientSocket{
     actual suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer) -> Boolean) : Long {
         if(this.isClosed) return -1
 
+        require(!this.isReading.value)
+        this.isReading.value = true
+
         buffer as NativeMultiplatformBuffer
         var read : Long = 0
         this.selectionKey.selectAlways(Interests.OP_READ){
@@ -103,7 +108,7 @@ actual class TCPClientSocket{
             buffer.reset()
             val result = read(this.selectionKey.socket,buffer.nativePointer(),buffer.capacity.signExtend<size_t>()).toInt()
 
-            if(result == -1 && posix_errno() != EAGAIN){
+            if(result == -1 || result == 0){
                 read = -1
                 false
             }else{
@@ -118,11 +123,15 @@ actual class TCPClientSocket{
             this.close()
         }
 
+        this.isReading.value = false
         return read
     }
 
     actual suspend fun read(buffer: MultiplatformBuffer) : Int {
         if(this.isClosed) return -1
+
+        require(!this.isReading.value)
+        this.isReading.value = true
 
         this.selectionKey.select(Interests.OP_READ)
 
@@ -137,11 +146,17 @@ actual class TCPClientSocket{
 
         buffer.limit = result
         buffer.cursor = result
+
+        this.isReading.value = false
+
         return result
     }
 
     actual suspend fun read(buffer: MultiplatformBuffer, minToRead : Int) : Int {
         if(this.isClosed) return -1
+
+        require(!this.isReading.value)
+        this.isReading.value = true
 
         buffer as NativeMultiplatformBuffer
 
@@ -166,20 +181,9 @@ actual class TCPClientSocket{
         }
 
         buffer.limit = read
+        this.isReading.value = false
 
         return read
-    }
-
-    actual fun asynchronousRead(buffer: MultiplatformBuffer) : Deferred<Int> {
-        return GlobalScope.async{
-            this@TCPClientSocket.read(buffer)
-        }
-    }
-
-    actual fun asynchronousRead(buffer: MultiplatformBuffer,  minToRead : Int) : Deferred<Int> {
-        return GlobalScope.async{
-            this@TCPClientSocket.read(buffer,minToRead)
-        }
     }
 
     actual suspend fun write(buffer: MultiplatformBuffer) : Boolean {
@@ -188,12 +192,6 @@ actual class TCPClientSocket{
         val deferred = CompletableDeferred<Boolean>()
         this.writeChannel.send(WriteRequest(buffer,deferred))
         return deferred.await()
-    }
-
-    actual fun asynchronousWrite(buffer: MultiplatformBuffer) : Deferred<Boolean> {
-        return GlobalScope.async{
-            this@TCPClientSocket.write(buffer)
-        }
     }
 
     private fun createWriteActor(channel : Channel<WriteRequest>, selectionKey: SelectionKey, sendBufferSize : Int, onError: () -> Unit) = GlobalScope.launch{

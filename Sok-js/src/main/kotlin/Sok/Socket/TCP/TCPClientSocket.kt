@@ -226,28 +226,12 @@ actual class TCPClientSocket{
         return buffer.limit
     }
 
-    actual fun asynchronousRead(buffer: MultiplatformBuffer) : Deferred<Int>{
-        return GlobalScope.async {
-            this@TCPClientSocket.read(buffer)
-        }
-    }
-
-    actual fun asynchronousRead(buffer: MultiplatformBuffer,  minToRead : Int) : Deferred<Int>{
-        return GlobalScope.async {
-            this@TCPClientSocket.read(buffer,minToRead)
-        }
-    }
-
     actual suspend fun write(buffer: MultiplatformBuffer) : Boolean{
         if(this.isClosed) return false
 
-        return this.asynchronousWrite(buffer).await()
-    }
-
-    actual fun asynchronousWrite(buffer: MultiplatformBuffer) : Deferred<Boolean>{
         val deferred = CompletableDeferred<Boolean>()
         if(!this.writeChannel.offer(WriteRequest(buffer, deferred))) deferred.complete(false)
-        return deferred
+        return deferred.await()
     }
 
     /**

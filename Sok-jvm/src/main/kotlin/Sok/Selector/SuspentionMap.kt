@@ -2,13 +2,11 @@ package Sok.Selector
 
 import kotlinx.atomicfu.AtomicInt
 import kotlinx.atomicfu.atomic
-import kotlinx.coroutines.experimental.CancellableContinuation
-import kotlinx.coroutines.experimental.CompletableDeferred
-import kotlinx.coroutines.experimental.Deferred
+import kotlinx.coroutines.experimental.*
 import kotlinx.coroutines.experimental.channels.Channel
 import kotlinx.coroutines.experimental.channels.ClosedReceiveChannelException
-import kotlinx.coroutines.experimental.suspendCancellableCoroutine
 import java.lang.IllegalArgumentException
+import java.nio.channels.CancelledKeyException
 import java.nio.channels.SelectableChannel
 import java.nio.channels.SelectionKey
 
@@ -52,7 +50,21 @@ internal class SuspentionMap(
     @Volatile
     var alwaysSelectConnect : SelectAlways? = null
 
-    val selectionKey: SelectionKey = this.selector.register(this.channel,this)
+    val selectionKey: SelectionKey
+
+    init {
+        val def = this.selector.coroutineScope.async {
+            this@SuspentionMap.selector.register(this@SuspentionMap.channel,0,this@SuspentionMap)
+        }
+
+        if(this.selector.isInSelection){
+            this@SuspentionMap.selector.wakeup()
+        }
+
+        this.selectionKey = runBlocking(Dispatchers.Unconfined) {
+            def.await()
+        }
+    }
 
     /**
      * Register an interest for one selection
@@ -92,21 +104,28 @@ internal class SuspentionMap(
      */
     private suspend fun suspend(interest: Int){
 
-        suspendCancellableCoroutine<Boolean> {
-            try {
-                when(interest){
-                    SelectionKey.OP_READ -> this.OP_READ = it
-                    SelectionKey.OP_WRITE -> this.OP_WRITE = it
-                    SelectionKey.OP_ACCEPT -> this.OP_ACCEPT = it
-                    SelectionKey.OP_CONNECT -> this.OP_CONNECT = it
-                    else -> throw IllegalArgumentException("The interest is not valid")
-                }
-            }catch (e : ClosedReceiveChannelException){
-                //the suspention map was closed
-            }
+        val job = this.selector.coroutineScope.launch {
+            this@SuspentionMap.selectionKey.interestOps(this@SuspentionMap.interest.value)
 
-            this.selector.register(this)
+            suspendCancellableCoroutine<Boolean> {
+                try {
+                    when(interest){
+                        SelectionKey.OP_READ -> this@SuspentionMap.OP_READ = it
+                        SelectionKey.OP_WRITE -> this@SuspentionMap.OP_WRITE = it
+                        SelectionKey.OP_ACCEPT -> this@SuspentionMap.OP_ACCEPT = it
+                        SelectionKey.OP_CONNECT -> this@SuspentionMap.OP_CONNECT = it
+                        else -> throw IllegalArgumentException("The interest is not valid")
+                    }
+                }catch (e : ClosedReceiveChannelException){
+                    //the suspention map was closed
+                }
+            }
         }
+
+        if(this.selector.isInSelection){
+            this.selector.wakeup()
+        }
+        job.join()
     }
 
     /**
@@ -114,7 +133,12 @@ internal class SuspentionMap(
      */
     fun unsafeUnregister(interest : Int){
         this.interest.minusAssign(interest)
-        this.selectionKey.interestOps(this.interest.value)
+
+        try {
+            this.selectionKey.interestOps(this.interest.value)
+        }catch (e : CancelledKeyException){
+            //if the socket closed in the meantime
+        }
 
         when(interest){
             SelectionKey.OP_READ -> this.alwaysSelectRead = null

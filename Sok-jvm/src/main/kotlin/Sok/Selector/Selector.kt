@@ -13,6 +13,12 @@ class Selector {
 
     //default Selector
     companion object {
+        var isSelectorPoolInit = false
+        val defaultSelectorPool by lazy {
+            isSelectorPoolInit = true
+            SelectorPool(Runtime.getRuntime().availableProcessors())
+        }
+
         val defaultSelector by lazy { Selector() }
     }
 
@@ -22,9 +28,6 @@ class Selector {
     //number of channel the selector is managing
     @Volatile
     private var numberOfChannel = 0
-
-    //registering actor
-    private val registeringChannel = Channel<RegisteringRequest>(Channel.UNLIMITED)
 
     //selector states, the public property is backed by the atomic _isClosed
     private val _isClosed : AtomicRef<Boolean> =  atomic<Boolean>(false)
@@ -36,11 +39,11 @@ class Selector {
         get() = this._isClosed.value
 
     @Volatile
-    private var isInSelection = true
+    var isInSelection = true
 
     //selection thread and coroutine
     private val thread = newSingleThreadContext("SelectorThread")
-    private val coroutineScope = CoroutineScope(this.thread)
+    val coroutineScope = CoroutineScope(this.thread)
     private val mainLoop : Job
 
     //rendez-vous channel between the registering actor and the selection loop
@@ -66,7 +69,6 @@ class Selector {
      */
     private suspend fun loop(){
         while (!this.isClosed){
-
             //as the loop have its own thread, we can block it with endless selection without worry
             this.selector.select()
 
@@ -84,7 +86,7 @@ class Selector {
                 The SuspentionMap implementation guaranty that the continuation will not be null and we need to unregister the interest BEFORE
                 resuming the coroutine to avoid state incoherence
                  */
-                if (it.isReadable) {
+                if (it.isValid && it.isReadable) {
                     //check if there is an ongoing unlimited selection request
                     if(suspentionMap.alwaysSelectRead == null) {
                         //if not, unregister then resume the coroutine
@@ -100,7 +102,7 @@ class Selector {
                     }
                 }
 
-                if (it.isWritable) {
+                if (it.isValid && it.isWritable) {
                     if(suspentionMap.alwaysSelectWrite == null) {
                         suspentionMap.unsafeUnregister(SelectionKey.OP_WRITE)
                         suspentionMap.OP_WRITE!!.resume(true)
@@ -113,7 +115,7 @@ class Selector {
                         }
                     }
                 }
-                if (it.isAcceptable) {
+                if (it.isValid && it.isAcceptable) {
                     if(suspentionMap.alwaysSelectAccept == null) {
                         suspentionMap.unsafeUnregister(SelectionKey.OP_ACCEPT)
                         suspentionMap.OP_ACCEPT!!.resume(true)
@@ -126,7 +128,7 @@ class Selector {
                         }
                     }
                 }
-                if (it.isConnectable) {
+                if (it.isValid && it.isConnectable) {
                     if(suspentionMap.alwaysSelectConnect == null) {
                         suspentionMap.unsafeUnregister(SelectionKey.OP_CONNECT)
                         suspentionMap.OP_CONNECT!!.resume(true)
@@ -149,28 +151,20 @@ class Selector {
             //update state before iterating through the channel for state coherence purposes
             this.isInSelection = true
 
-            //check the registering channel for new requests
-            while(!this.registeringChannel.isEmpty){
-                val msg = this.registeringChannel.receive()
-                when(msg){
-
-                    //new channels must be registered once to build the suspention map
-                    is NewRegisteringRequest -> {
-                        msg.deferred.complete(msg.channel.register(this@Selector.selector,0,msg.suspentionMap))
-                    }
-
-                    //use the suspentionMap to update the selectionKey
-                    is ExistingRegisteringRequest -> {
-                        if(msg.suspentionMap.selectionKey.interestOps() != msg.suspentionMap.interest.value){
-                            msg.suspentionMap.selectionKey.interestOps(msg.suspentionMap.interest.value)
-                        }
-                    }
-                }
-            }
+            //yield to let registrations coroutine execute
+            yield()
 
             //update the number of socket registered
             this.numberOfChannel = this.selector.keys().size
         }
+    }
+
+    fun wakeup(){
+        this.selector.wakeup()
+    }
+
+    fun register(channel : SelectableChannel, interest : Int, attachment : Any?) : SelectionKey{
+        return channel.register(this.selector,interest,attachment)
     }
 
     fun close(){
@@ -186,46 +180,11 @@ class Selector {
     }
 
     /**
-     * this method is called by new SuspentionMaps that do not have a SelectionKey yet, it will block the calling thread while the selector
-     * wakes up and compute the request
-     */
-    internal fun register(channel: SelectableChannel,suspentionMap: SuspentionMap) : SelectionKey = runBlocking(Dispatchers.IO) {
-        val deferred = CompletableDeferred<SelectionKey>()
-        this@Selector.registeringChannel.send(NewRegisteringRequest(channel,deferred,suspentionMap))
-
-        //if the selector is blocked in a selection, wake it up
-        if(isInSelection){
-            selector.wakeup()
-        }
-
-        deferred.await()
-    }
-
-    /**
-     * used by already registered SuspentionMaps that only want to update their interests
-     */
-    internal  fun register(suspentionMap: SuspentionMap){
-        this@Selector.registeringChannel.offer(ExistingRegisteringRequest(suspentionMap))
-
-        //if the selector is blocked in a selection, wake it up
-        if(isInSelection){
-            selector.wakeup()
-        }
-    }
-
-    /**
      * used by the SelectorPool to order them
      */
     fun numberOfChannel() : Int{
         return this.numberOfChannel
     }
 }
-
-/**
- * classes related to the registering actor requests
- */
-internal sealed class RegisteringRequest
-internal class NewRegisteringRequest(val channel: SelectableChannel, val deferred: CompletableDeferred<SelectionKey>, val suspentionMap: SuspentionMap) : RegisteringRequest()
-internal class ExistingRegisteringRequest(val suspentionMap: SuspentionMap) : RegisteringRequest()
 
 class SelectAlways(val operation : () -> Boolean)

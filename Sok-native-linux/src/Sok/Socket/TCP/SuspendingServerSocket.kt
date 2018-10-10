@@ -5,6 +5,7 @@ import kotlinx.atomicfu.AtomicBoolean
 import kotlinx.atomicfu.atomic
 import kotlinx.cinterop.*
 import platform.posix.*
+import kotlinx.coroutines.experimental.*
 
 actual class TCPServerSocket{
 
@@ -93,6 +94,20 @@ actual class TCPServerSocket{
         if(this._isClosed.compareAndSet(false,true)){
             close(this.selectionKey.socket)
             this.onClose.invoke()
+        }
+    }
+}
+
+actual fun createTCPServer(address: String, port: Int, scope : CoroutineScope, serverFunction : suspend (server : TCPServerSocket) -> Unit ){
+    Selector.setDefaultScope(scope)
+    val server = TCPServerSocket(address,port)
+    scope.launch{
+        try {
+            serverFunction.invoke(server)
+        } finally {
+            server.close()
+            Selector.closeSelectorAndWait()
+            Selector.setDefaultScope(GlobalScope)
         }
     }
 }

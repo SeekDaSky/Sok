@@ -14,12 +14,12 @@ fun main(args: Array<String>){
 
     val socket = TCPServerSocket("localhost", 9999)
 
-    GlobalScope.launch(Dispatchers.IO) {
+    GlobalScope.launch {
         while(!socket.isClosed) {
 
             val socket = socket.accept()
 
-            GlobalScope.launch(Dispatchers.IO) {
+            GlobalScope.launch {
 
                 while(!socket.isClosed){
 

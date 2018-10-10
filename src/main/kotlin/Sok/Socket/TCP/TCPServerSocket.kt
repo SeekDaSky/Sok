@@ -29,6 +29,7 @@ expect class TCPServerSocket{
     fun close()
 }
 
-/*
-expect fun createTCPServer(address: String, port: Int, serverFunction : suspend (context : TCPServerContext) -> Unit )
-sealed class TCPServerContext(server : TCPServerSocket, scope: CoroutineScope)*/
+/**
+ *
+ */
+expect fun createTCPServer(address: String, port: Int, scope : CoroutineScope, serverFunction : suspend (server : TCPServerSocket) -> Unit )

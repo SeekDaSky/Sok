@@ -53,32 +53,12 @@ expect class TCPClientSocket{
     suspend fun read(buffer: MultiplatformBuffer, minToRead : Int) : Int
 
     /**
-     * Perform an asynchronous read, the method will read n bytes ( 0 < n <= buffer.size() )
-     *
-     * @return Deferred containing the number of byte read
-     */
-    fun asynchronousRead(buffer: MultiplatformBuffer) : Deferred<Int>
-
-    /**
-     * Perform an asynchronous read, the method will read n bytes ( minToRead < n <= buffer.size() )
-     *
-     * @return Deferred containing the number of byte read
-     */
-    fun asynchronousRead(buffer: MultiplatformBuffer,  minToRead : Int) : Deferred<Int>
-
-    /**
      * Perform a suspending write, the method will not resume until all the buffer is written
      *
      * @return Success of the operation
      */
     suspend fun write(buffer: MultiplatformBuffer) : Boolean
 
-    /**
-     * Perform an asynchronous write, the method will not complete the deferred until all the bytes are written
-     *
-     * @return Success of the operation
-     */
-    fun asynchronousWrite(buffer: MultiplatformBuffer) : Deferred<Boolean>
 }
 
 /**

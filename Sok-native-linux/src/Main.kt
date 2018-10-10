@@ -9,6 +9,7 @@ import platform.posix.gettimeofday
 import platform.posix.timeval
 
 val dataSize = 16777216
+val bufferPool = BufferPool(16,65536)
 
 fun main(args: Array<String>) = runBlocking{
     Selector.setDefaultScope(this)
@@ -23,38 +24,40 @@ fun main(args: Array<String>) = runBlocking{
             val socket = server.accept()
 
             GlobalScope.launch() {
+                kotlinx.cinterop.memScoped{
+                    val start = nativeHeap.alloc<timeval>()
+                    val stop = nativeHeap.alloc<timeval>()
 
-                val buffer = allocMultiplatformBuffer(dataSize)
+                    while(!socket.isClosed){
+                        val buffer = bufferPool.requestObject()
 
-                val start = nativeHeap.alloc<timeval>()
-                val stop = nativeHeap.alloc<timeval>()
+                        gettimeofday(start.ptr,null)
+                        var received = 0
 
-                while(!socket.isClosed){
+                        socket.bulkRead(buffer){
 
-                    gettimeofday(start.ptr,null)
-                    var received = 0
+                            received += it.limit
 
-                    socket.bulkRead(buffer){
-
-                        received += it.limit
-
-                        if(received >= dataSize){
-                            received = 0
-                            false
-                        }else{
-                            true
+                            if(received >= dataSize){
+                                received = 0
+                                false
+                            }else{
+                                true
+                            }
                         }
-                    }
-                    gettimeofday(stop.ptr,null)
+                        gettimeofday(stop.ptr,null)
 
-                    val time = (stop.tv_usec-start.tv_usec)/1000.0
-                    val dataSizeMO = dataSize/1_000_000
+                        bufferPool.freeObject(buffer)
 
-                    readSpeedList.add(dataSizeMO/time)
+                        val time = (stop.tv_usec-start.tv_usec)/1000.0
+                        val dataSizeMO = dataSize/1_000_000
 
-                    //limit number of mesures
-                    if(readSpeedList.size > 200){
-                        readSpeedList.removeAt(0)
+                        readSpeedList.add(dataSizeMO/time)
+
+                        //limit number of mesures
+                        if(readSpeedList.size > 200){
+                            readSpeedList.removeAt(0)
+                        }
                     }
                 }
             }
