@@ -6,7 +6,6 @@ import Sok.Buffer.wrapMultiplatformBuffer
 import Sok.Exceptions.ConnectionRefusedException
 import Sok.Socket.TCP.TCPServerSocket
 import Sok.Socket.TCP.createTCPClientSocket
-import Sok.Socket.TCP.createTCPServer
 import Sok.Test.runTest
 import kotlinx.coroutines.experimental.*
 import Sok.Test.JsName
@@ -20,7 +19,7 @@ class ClientTests {
     @Test
     @JsName("ClientCanConnectClose")
     fun `Client can connect and close`() = runTest{ scope ->
-        createTCPServer(address,port,scope){server ->
+        createTCPServer(address,port){server ->
             val job = scope.launch {
                 server.accept()
             }
@@ -32,9 +31,9 @@ class ClientTests {
 
 
     @Test
-    @JsName("ClientCanWrite")
-    fun `Client can write`() = runTest{ scope ->
-        createTCPServer(address,port,scope) { server ->
+    @JsName("ClientCanReadOrWrite")
+    fun `Client can read or write`() = runTest{ scope ->
+        createTCPServer(address,port) { server ->
             val data = listOf<Byte>(1, 2, 3, 4, 5, 6, 7, 8, 9)
 
             val job = scope.launch {
@@ -42,11 +41,15 @@ class ClientTests {
                 val buf = allocMultiplatformBuffer(data.size)
                 socket.read(buf)
                 assertEquals(buf.toArray().toList(), data)
+                assertEquals(data.size,buf.cursor)
             }
 
             val client = createTCPClientSocket("localhost", 9999)
 
-            client.write(wrapMultiplatformBuffer(data.toByteArray()))
+            val buffer = wrapMultiplatformBuffer(data.toByteArray())
+            client.write(buffer)
+            assertEquals(data.size,buffer.cursor)
+
             job.join()
 
             client.close()
@@ -54,19 +57,27 @@ class ClientTests {
     }
 
     @Test
-    @JsName("ClientCanRead")
-    fun `Client can read`() = runTest{ scope ->
-        createTCPServer(address,port,scope) { server ->
+    @JsName("ClientCanReadOrWriteWithLimitsOnBuffer")
+    fun `Client can read or write with limits on buffer`() = runTest{ scope ->
+        createTCPServer(address,port) { server ->
             val data = listOf<Byte>(1, 2, 3, 4, 5, 6, 7, 8, 9)
 
-            scope.launch {
-                server.accept().write(wrapMultiplatformBuffer(data.toByteArray()))
+            val job = scope.launch {
+                val socket = server.accept()
+                val buf = allocMultiplatformBuffer(data.size)
+                buf.limit = socket.read(buf)
+                assertTrue { data.containsAll(buf.toArray().toList()) }
+                assertEquals(data.size-1,buf.cursor)
             }
 
             val client = createTCPClientSocket("localhost", 9999)
-            val buf = allocMultiplatformBuffer(data.size)
-            client.read(buf)
-            assertEquals(buf.toArray().toList(), data)
+
+            val buffer = wrapMultiplatformBuffer(data.toByteArray())
+            buffer.limit--
+            client.write(buffer)
+            assertEquals(data.size-1,buffer.cursor)
+
+            job.join()
 
             client.close()
         }
@@ -75,13 +86,13 @@ class ClientTests {
     @Test
     @JsName("ClientCanReadWithMinimumNumberOfByte")
     fun `Client can read with a minimum number of byte`() = runTest{ scope ->
-        createTCPServer(address,port,scope) { server ->
+        createTCPServer(address,port) { server ->
 
             val job = scope.launch {
                 val buf = allocMultiplatformBuffer(10)
                 val client = server.accept()
                 client.read(buf, 10)
-                assertTrue { buf.limit == 10 }
+                assertTrue { buf.cursor == 10 }
             }
 
             val client = createTCPClientSocket("localhost", 9999)
@@ -103,7 +114,7 @@ class ClientTests {
     @Test
     @JsName("ClientCanBulkReadWrite")
     fun `Client can bulk read write`() = runTest{ scope ->
-        createTCPServer(address,port,scope) { server ->
+        createTCPServer(address,port) { server ->
 
             // send a 10Mo chunk
             val data = ByteArray(10_000_000) {
@@ -131,7 +142,7 @@ class ClientTests {
     @Test
     @JsName("ClientWaitForTheEndOfTheSendQueueBeforeClose")
     fun `Client wait for the end of the send queue before close`() = runTest{ scope ->
-        createTCPServer(address,port,scope) { server ->
+        createTCPServer(address,port) { server ->
 
             val job = scope.launch {
                 val socket = server.accept()
@@ -171,7 +182,7 @@ class ClientTests {
     @Test
     @JsName("ClientDoesntWaitForTheEndOfTheSendQueueWhenForceClose")
     fun `Client doesn't wait for the end of the send queue when force close`() = runTest{ scope ->
-        createTCPServer(address,port,scope) { server ->
+        createTCPServer(address,port) { server ->
 
             val job = scope.launch {
                 val socket = server.accept()
@@ -215,8 +226,8 @@ class ClientTests {
 
     @Test
     @JsName("ClientCloseEventIsFiredOnce")
-    fun `Client close event is fired once`() = runTest{ scope ->
-        createTCPServer(address,port,scope) { _ ->
+    fun `Client close event is fired once`() = runTest{ _ ->
+        createTCPServer(address,port) { _ ->
 
             val client = createTCPClientSocket("localhost", 9999)
 
@@ -233,8 +244,8 @@ class ClientTests {
 
     @Test
     @JsName("ClientReadWriteReturnMinus1WhenSocketClosed")
-    fun `Client read write return -1 when socket closed`() = runTest{ scope ->
-        createTCPServer(address,port,scope) { server ->
+    fun `Client read write return -1 when socket closed`() = runTest{ _ ->
+        createTCPServer(address,port) { server ->
 
             val job = GlobalScope.launch {
                 assertEquals(-1, server.accept().read(allocMultiplatformBuffer(1)))
@@ -246,6 +257,8 @@ class ClientTests {
 
             assertEquals(false, client.write(allocMultiplatformBuffer(1)))
             assertEquals(-1, client.read(allocMultiplatformBuffer(1)))
+            assertEquals(-1, client.read(allocMultiplatformBuffer(1),1))
+            assertEquals(-1, client.bulkRead(allocMultiplatformBuffer(1)){false})
         }
     }
 
@@ -258,5 +271,14 @@ class ClientTests {
         }catch (e : Exception){
             assertTrue { e is ConnectionRefusedException }
         }
+    }
+}
+
+suspend fun createTCPServer(address : String, port : Int, test : suspend (TCPServerSocket) -> Unit){
+    val server = TCPServerSocket(address,port)
+    try {
+        test.invoke(server)
+    }finally {
+        server.close()
     }
 }

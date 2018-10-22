@@ -3,13 +3,11 @@ package Sok.Selector
 import kotlinx.atomicfu.AtomicBoolean
 import kotlinx.atomicfu.AtomicRef
 import kotlinx.atomicfu.atomic
-import platform.linux.eventfd
 import platform.posix.*
 import kotlinx.cinterop.*
-import Sok.Utils.Mutex
 import kotlin.experimental.and
-import konan.worker.ensureNeverFrozen
 import kotlinx.coroutines.experimental.*
+import kotlin.coroutines.experimental.*
 
 private val _defaultSelector : AtomicRef<Selector?> = atomic(null)
 private val _defaultScope : AtomicRef<CoroutineScope> = atomic(GlobalScope)
@@ -44,16 +42,25 @@ class Selector private constructor (val scope : CoroutineScope) {
 
     private val registeredSockets = mutableListOf<SelectionKey>()
 
+    private val sleepContinuation: AtomicRef<Continuation<Unit>?> = atomic(null)
+
     private lateinit var loop: Job
 
     private fun start() {
         if(this.isStarted.compareAndSet(false,true)){
             this.loop = scope.launch {
                 while (!this@Selector.isClosed()) {
-                    this@Selector.select(10)
 
-                    //allow continuations to execute
-                    yield()
+                    if(this@Selector.registeredSockets.size != 0){
+                        this@Selector.select(1)
+                        //allow continuations to execute
+                        yield()
+                    }else{
+                        suspendCoroutine<Unit>{
+                            this@Selector.sleepContinuation.value = it
+                        }
+                    }
+
                 }
             }
         }
@@ -65,6 +72,10 @@ class Selector private constructor (val scope : CoroutineScope) {
         }
         val sk = SelectionKey(socket, this)
         this.registeredSockets.add(sk)
+        val cont = this.sleepContinuation.getAndSet(null)
+        if(cont != null){
+            cont.resume(Unit)
+        }
         return sk
     }
 
@@ -102,7 +113,7 @@ class Selector private constructor (val scope : CoroutineScope) {
         }
 
         //perform call
-        val result = poll(this.pollArrayStruct, this.allocatedStructs.toLong(), timeout)
+        val result = poll(this.pollArrayStruct, this.registeredSockets.size.toLong(), timeout)
 
         //update state
         this.isInSelection.value = false
@@ -116,6 +127,8 @@ class Selector private constructor (val scope : CoroutineScope) {
         for (i in (0 until this.registeredSockets.size)) {
             val struct: pollfd = this.pollArrayStruct[i].reinterpret()
             val sk = this@Selector.registeredSockets[i]
+
+            //println("registered size: ${this.registeredSockets.size} \t\tsocket number: ${struct.fd} \t\tstruct.revents: ${struct.revents}")
 
             if (struct.revents.and(POLLIN.toShort()) == POLLIN.toShort()) {
                 val cont = sk.OP_READ!!
@@ -151,7 +164,6 @@ class Selector private constructor (val scope : CoroutineScope) {
 
             if (struct.revents.and(POLLHUP.toShort()) == POLLHUP.toShort() ||
                 struct.revents.and(POLLERR.toShort()) == POLLERR.toShort()) {
-                println("oh!")
                 sk.close()
             }
         }

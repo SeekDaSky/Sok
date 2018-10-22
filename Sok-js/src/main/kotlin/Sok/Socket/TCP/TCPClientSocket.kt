@@ -129,15 +129,14 @@ actual class TCPClientSocket{
         }
 
         //if we did not unshit data and that the buffer is small enough to fit in the MultiplatformBuffer, swap the backbuffer
-        if(internalBuffer.length <= buffer.limit && this.indexInStream == 0){
-            buffer.limit = internalBuffer.copy(buffer.nativeBuffer(),buffer.cursor,0,internalBuffer.length) + buffer.cursor
-            buffer.cursor = buffer.limit
+        if(internalBuffer.length <= buffer.remaining() && this.indexInStream == 0){
+            buffer.cursor += internalBuffer.copy(buffer.nativeBuffer(),buffer.cursor,0,internalBuffer.length)
         }else{
             //transfer data
-            buffer.limit = internalBuffer.copy(buffer.nativeBuffer(),buffer.cursor,this.indexInStream,min(internalBuffer.length,buffer.remaining())) + buffer.cursor
-            buffer.cursor = buffer.limit
+            val read = internalBuffer.copy(buffer.nativeBuffer(),buffer.cursor,this.indexInStream,min(internalBuffer.length,buffer.remaining()))
+            buffer.cursor += read
             //if we read all the internal buffer, discard, else unshift it and update indexInStream
-            if(this.indexInStream + buffer.limit != internalBuffer.length){
+            if(this.indexInStream + read != internalBuffer.length){
                 this.indexInStream += buffer.limit
                 this.socket.unshift(internalBuffer)
             }else{
@@ -176,10 +175,13 @@ actual class TCPClientSocket{
         var total = 0L
         (buffer as JSMultiplatformBuffer)
 
+        buffer.reset()
         this.registerReadable{
             //read while there is data
             while (this.readInto(buffer)) {
-                total += buffer.limit
+                total += buffer.cursor
+                buffer.limit = buffer.cursor
+                buffer.cursor = 0
                 //if the operation returns false, unregister
                 if (!operation(buffer)) {
                     return@registerReadable false
@@ -200,37 +202,37 @@ actual class TCPClientSocket{
     actual suspend fun read(buffer: MultiplatformBuffer) : Int{
         if(this.isClosed) return -1
 
+        val cursor = buffer.cursor
+
         this.registerReadable {
             (buffer as JSMultiplatformBuffer)
             this.readInto(buffer)
             false
         }
 
-        return buffer.limit
+        return buffer.cursor - cursor
     }
 
     actual suspend fun read(buffer: MultiplatformBuffer, minToRead : Int) : Int{
         if(this.isClosed) return -1
 
-        //backup buffer limit
-        val limit = buffer.limit
+        val cursor = buffer.cursor
+
         this.registerReadable {
-            //if we are reading in multiple time, we have to set the limit to the original limit of the buffer each time
-            buffer.limit = limit
             (buffer as JSMultiplatformBuffer)
             this.readInto(buffer)
 
-            buffer.limit < minToRead
+            buffer.cursor - cursor < minToRead
         }
 
-        return buffer.limit
+        return buffer.cursor - cursor
     }
 
     actual suspend fun write(buffer: MultiplatformBuffer) : Boolean{
         if(this.isClosed) return false
 
         val deferred = CompletableDeferred<Boolean>()
-        if(!this.writeChannel.offer(WriteRequest(buffer, deferred))) deferred.complete(false)
+        this.writeChannel.send(WriteRequest(buffer, deferred))
         return deferred.await()
     }
 
@@ -248,11 +250,12 @@ actual class TCPClientSocket{
 
             request.data.cursor = 0
             try {
-                val buf = (request.data as JSMultiplatformBuffer).nativeBuffer()
+                val buf = (request.data as JSMultiplatformBuffer).nativeBuffer().subarray(request.data.cursor,request.data.limit)
 
                 suspendCancellableCoroutine<Unit> {
                     this@TCPClientSocket.writingContinuation = it
                     socket.write(buf){
+                        request.data.cursor += buf.length
                         this@TCPClientSocket.writingContinuation = null
                         it.resume(Unit)
                     }

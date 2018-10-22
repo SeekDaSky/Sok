@@ -114,7 +114,7 @@ actual class TCPClientSocket{
             }else{
                 read += result
                 buffer.limit = result
-                buffer.cursor = result
+                buffer.cursor = 0
                 operation(buffer)
             }
         }
@@ -137,14 +137,13 @@ actual class TCPClientSocket{
 
         buffer as NativeMultiplatformBuffer
 
-        val result = read(this.selectionKey.socket,buffer.nativePointer()+buffer.cursor,(buffer.limit-buffer.cursor).signExtend<size_t>()).toInt()
+        val result = read(this.selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().signExtend<size_t>()).toInt()
 
         if(result == -1 || result == 0){
             this.close()
             return -1
         }
 
-        buffer.limit = result
         buffer.cursor = result
 
         this.isReading.value = false
@@ -163,7 +162,7 @@ actual class TCPClientSocket{
         var read = 0
 
         this.selectionKey.selectAlways(Interests.OP_READ){
-            val result = read(this.selectionKey.socket,buffer.nativePointer()+buffer.cursor,(buffer.limit-buffer.cursor).signExtend<size_t>()).toInt()
+            val result = read(this.selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().signExtend<size_t>()).toInt()
 
             if(result == -1){
                 read = -1
@@ -180,7 +179,6 @@ actual class TCPClientSocket{
             return -1
         }
 
-        buffer.limit = read
         this.isReading.value = false
 
         return read

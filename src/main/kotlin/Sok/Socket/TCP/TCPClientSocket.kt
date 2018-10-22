@@ -32,21 +32,22 @@ expect class TCPClientSocket{
      * The call will suspend as long as the loop is running. Calling this method instead of a regular loop give roughly 50%
      * more bandwidth. THE LOOP MUST NOT BE COMPUTATION INTENSIVE OR BLOCKING as the internal selector will call it synchronously and wait
      * for it to return to continue its operations. The passed buffer will get reset at each iteration so you should use
-     * the buffer cursor position between two iterations. each iteration will read n bytes ( 0 < n <= buffer.size() )
+     * the buffer cursor position between two iterations so you must avoid leaking it to exterior coroutines/threads. each
+     * iteration will read n bytes ( 0 < n <= buffer.capacity() ).
      *
      * @return Number of byte read
      */
     suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer) -> Boolean) : Long
 
     /**
-     * Perform a suspending read, the method will read n bytes ( 0 < n <= buffer.size() )
+     * Perform a suspending read, the method will read n bytes ( 0 < n <= buffer.limit()-buffer.cursor() ) and update the cursor
      *
      * @return Number of byte read
      */
     suspend fun read(buffer: MultiplatformBuffer) : Int
 
     /**
-     * Perform a suspending read, the method will read n bytes ( minToRead < n <= buffer.size() )
+     * Perform a suspending read, the method will read n bytes ( minToRead < n <= buffer.size()-buffer.cursor() ) and update the cursor
      *
      * @return Number of byte read
      */

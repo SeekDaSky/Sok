@@ -8,7 +8,7 @@ import kotlinx.cinterop.ptr
 import platform.posix.gettimeofday
 import platform.posix.timeval
 
-val dataSize = 16777216
+val dataSize = 16_777_216
 val bufferPool = BufferPool(16,65536)
 
 fun main(args: Array<String>) = runBlocking{
@@ -49,8 +49,8 @@ fun main(args: Array<String>) = runBlocking{
 
                         bufferPool.freeObject(buffer)
 
-                        val time = (stop.tv_usec-start.tv_usec)/1000.0
-                        val dataSizeMO = dataSize/1_000_000
+                        val time = (stop.tv_usec-start.tv_usec)/1_000_000
+                        val dataSizeMO = dataSize/1_000_000.0
 
                         readSpeedList.add(dataSizeMO/time)
 

@@ -1,7 +1,5 @@
 package Sok.Socket.TCP
 
-import kotlinx.coroutines.experimental.CoroutineScope
-
 expect class TCPServerSocket{
 
     /** state of the socket */
@@ -28,8 +26,3 @@ expect class TCPServerSocket{
      */
     fun close()
 }
-
-/**
- *
- */
-expect fun createTCPServer(address: String, port: Int, scope : CoroutineScope, serverFunction : suspend (server : TCPServerSocket) -> Unit )

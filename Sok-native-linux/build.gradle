@@ -37,7 +37,8 @@ sourceSets {
     main {
         component {
             target "linux"
-            outputKinds = [KLIBRARY]
+            outputKinds = [EXECUTABLE]
+            //outputKinds = [KLIBRARY]
         }
     }
 }

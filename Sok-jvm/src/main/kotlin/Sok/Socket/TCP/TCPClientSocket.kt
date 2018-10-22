@@ -25,7 +25,6 @@ actual class TCPClientSocket {
 
     //write/read actors
     private val writeActor: SendChannel<WriteRequest>
-    private val readActor: SendChannel<ReadRequest>
 
     //socket state (I have to force the use of AtomicRef because of a weird bug in AtomicFU)
     //the public property isClosed is backup by this atomic
@@ -64,12 +63,6 @@ actual class TCPClientSocket {
 
         //launch write/read actor
         this.writeActor = this.writeActor(this.suspentionMap,this.channel){
-            runBlocking(Dispatchers.IO) {
-                this@TCPClientSocket.close()
-            }
-        }
-
-        this.readActor = this.readActor(this.suspentionMap,this.channel){
             runBlocking(Dispatchers.IO) {
                 this@TCPClientSocket.close()
             }
@@ -116,9 +109,33 @@ actual class TCPClientSocket {
             return -1
         }
 
-        val deferred = CompletableDeferred<Long>()
-        this.readActor.send(ReadAlwaysRequest(buffer, deferred, true, operation))
-        return deferred.await()
+        (buffer as JVMMultiplatformBuffer)
+        var read : Long = 0
+
+        this.suspentionMap.selectAlways(SelectionKey.OP_READ){
+            buffer.reset()
+
+            val tmpRead = this.channel.read(buffer.nativeBuffer())
+            if(tmpRead > 0){
+                read += tmpRead
+
+                buffer.nativeBuffer().flip()
+                buffer.limit = buffer.nativeBuffer().limit()
+                buffer.cursor = 0
+
+                //let the operation registered by the user tell if we need another selection
+                operation.invoke(buffer)
+            }else{
+                read = -1
+                false
+            }
+        }
+
+        if(read == -1.toLong()){
+            this.close()
+        }
+
+        return read
     }
 
     actual suspend fun read(buffer: MultiplatformBuffer) : Int{
@@ -126,32 +143,55 @@ actual class TCPClientSocket {
             return -1
         }
 
-        val deferred = CompletableDeferred<Int>()
-        this.readActor.send(ReadOnceRequest(buffer, deferred))
-        return deferred.await()
+        var read = 0
+        withContext(Dispatchers.IO){
+            //wait for the selector to detect data then read
+            this@TCPClientSocket.suspentionMap.selectOnce(SelectionKey.OP_READ)
+
+            (buffer as JVMMultiplatformBuffer)
+            read = channel.read(buffer.nativeBuffer())
+
+            if(read > 0){
+                buffer.cursor += read
+            }
+        }
+
+
+        //if the channel returns -1 it means that the channel has been closed
+        if(read == -1){
+            this.close()
+        }
+        return read
     }
 
     actual suspend fun read(buffer: MultiplatformBuffer, minToRead : Int) : Int{
+        require(buffer.remaining() >= minToRead)
         if(this.isClosed){
             return -1
         }
 
-        val deferred = CompletableDeferred<Long>()
+        (buffer as JVMMultiplatformBuffer)
+        var read = 0
 
-        //loop until the cursor has passed the minimum
-        val request = ReadAlwaysRequest(buffer, deferred, false) {
-            if (it.cursor >= minToRead) {
-                (it as JVMMultiplatformBuffer).nativeBuffer().flip()
-                it.limit = it.nativeBuffer().limit()
-                it.cursor = 0
-                true
-            } else {
+        this.suspentionMap.selectAlways(SelectionKey.OP_READ){
+
+            val tmpRead = this.channel.read(buffer.nativeBuffer())
+            if(tmpRead > 0){
+                read += tmpRead
+                read < minToRead
+            }else{
+                read = -1
                 false
             }
         }
 
-        this.readActor.send(request)
-        return deferred.await().toInt()
+        buffer.cursor += read
+
+        if(read == -1){
+            this.close()
+        }
+
+        return read
     }
 
     actual suspend fun write(buffer: MultiplatformBuffer) : Boolean{
@@ -163,62 +203,6 @@ actual class TCPClientSocket {
         this.writeActor.send(WriteRequest(buffer, deferred))
 
         return deferred.await()
-    }
-
-    /**
-     * Create a standalone read actor, the actor support single read and bulkReads. A bulkRead will use the selectAlways() method of the suspention
-     * map that will then register the interest for an undefined number of selection, thus avoiding multiple register
-     */
-    private fun readActor(selectorManager: SuspentionMap, channel: SocketChannel, onClose : () -> Unit) = GlobalScope.actor<ReadRequest>(Dispatchers.IO){
-        for (request in this.channel){
-            when(request){
-                is ReadOnceRequest -> {
-                    //wait for the selector to detect data then read
-                    selectorManager.selectOnce(SelectionKey.OP_READ)
-                    val read = channel.read((request.buffer as JVMMultiplatformBuffer).nativeBuffer())
-
-                    //if the channel returns -1 it means that the channel has been closed
-                    if(read == -1){
-                        onClose()
-                    }
-
-                    request.deferred.complete(read)
-                }
-
-                is ReadAlwaysRequest -> {
-                    //total number of bytes read. As multiple reads may be made, the final size may exceed the max size of an Int
-                    var totalRead = 0L
-
-                    //select an interest for an undefined number of selection and the operation to call for each selection
-                    selectorManager.selectAlways(SelectionKey.OP_READ){
-
-                        //when reading a minimum number of bytes we don't want to reset the buffer at each selection
-                        if(request.shouldResetBuffer){
-                            (request.buffer as JVMMultiplatformBuffer).nativeBuffer().clear()
-                        }
-
-                        //read and call the close lambda in case of a closed channel
-                        val read = channel.read((request.buffer as JVMMultiplatformBuffer).nativeBuffer())
-                        if(read > 0){
-                            totalRead += read
-
-                            if(request.shouldResetBuffer){
-                                request.buffer.nativeBuffer().flip()
-                                request.buffer.limit = request.buffer.nativeBuffer().limit()
-                                request.buffer.cursor = 0
-                            }
-
-                            //let the operation registered by the user tell if we need another selection
-                            request.operation.invoke(request.buffer)
-                        }else{
-                            onClose()
-                            false
-                        }
-                    }
-                    request.deferred.complete(totalRead)
-                }
-            }
-        }
     }
 
     /**
@@ -257,6 +241,7 @@ actual class TCPClientSocket {
                     }
                 }
 
+                request.data.cursor = request.data.limit
                 request.deferred.complete(true)
             }catch (e : Exception){
                 request.deferred.complete(false)
@@ -268,11 +253,6 @@ actual class TCPClientSocket {
 }
 
 class WriteRequest(val data: MultiplatformBuffer, val deferred: CompletableDeferred<Boolean>)
-
-sealed class ReadRequest(val buffer: MultiplatformBuffer)
-class ReadOnceRequest(buffer: MultiplatformBuffer, val deferred: CompletableDeferred<Int>) : ReadRequest(buffer)
-class ReadAlwaysRequest(buffer: MultiplatformBuffer, val deferred: CompletableDeferred<Long>, val shouldResetBuffer : Boolean, val operation : (buffer : MultiplatformBuffer) -> Boolean) : ReadRequest(buffer)
-
 
 /**
  * This function will create a client socket with either the default selector pool if it is initialized of with a single default Selector

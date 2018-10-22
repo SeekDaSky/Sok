@@ -97,17 +97,3 @@ actual class TCPServerSocket{
         }
     }
 }
-
-actual fun createTCPServer(address: String, port: Int, scope : CoroutineScope, serverFunction : suspend (server : TCPServerSocket) -> Unit ){
-    Selector.setDefaultScope(scope)
-    val server = TCPServerSocket(address,port)
-    scope.launch{
-        try {
-            serverFunction.invoke(server)
-        } finally {
-            server.close()
-            Selector.closeSelectorAndWait()
-            Selector.setDefaultScope(GlobalScope)
-        }
-    }
-}
