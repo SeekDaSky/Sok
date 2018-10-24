@@ -276,9 +276,11 @@ class ClientTests {
 
 suspend fun createTCPServer(address : String, port : Int, test : suspend (TCPServerSocket) -> Unit){
     val server = TCPServerSocket(address,port)
+    assertTrue { !server.isClosed }
     try {
         test.invoke(server)
     }finally {
         server.close()
+        assertTrue { server.isClosed }
     }
 }

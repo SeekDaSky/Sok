@@ -21,7 +21,6 @@ actual class TCPClientSocket {
 
     //socket related data
     private val channel: SocketChannel
-    actual val clientIP: String
 
     //write/read actors
     private val writeActor: SendChannel<WriteRequest>
@@ -50,7 +49,6 @@ actual class TCPClientSocket {
 
         //store channel and IP (because you can't get remoteIP if channel is closed, it's better to store it directly)
         this.channel = channel
-        this.clientIP = channel.remoteAddress.toString()
         //configure the socket for NIO use
         channel.configureBlocking(false)
         channel.setOption(StandardSocketOptions.TCP_NODELAY,true)

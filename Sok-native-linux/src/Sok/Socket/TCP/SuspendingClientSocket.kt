@@ -13,8 +13,6 @@ import platform.posix.*
 
 actual class TCPClientSocket{
 
-    actual val clientIP : String = ""
-
     private val closeHandler : AtomicRef<() -> Unit> = atomic({})
 
     private val isReading : AtomicBoolean = atomic(false)

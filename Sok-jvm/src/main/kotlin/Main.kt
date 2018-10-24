@@ -23,7 +23,7 @@ fun main(args: Array<String>){
 
                 while(!socket.isClosed){
 
-                    val buffer = bufferPool.requestObject()
+                    val buffer = bufferPool.requestBuffer()
 
                     val starttime = System.currentTimeMillis()
                     var received = 0
@@ -52,7 +52,7 @@ fun main(args: Array<String>){
                     }
 
 
-                    bufferPool.freeObject(buffer)
+                    bufferPool.freeBuffer(buffer)
                 }
             }
         }

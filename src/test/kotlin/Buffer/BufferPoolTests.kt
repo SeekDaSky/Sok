@@ -17,7 +17,7 @@ class BufferPoolTests{
 
         (0..1).forEach {
             withTimeout(10){
-                pool.requestObject()
+                pool.requestBuffer()
             }
         }
     }
@@ -29,7 +29,7 @@ class BufferPoolTests{
 
         (0..10).forEach {
             withTimeout(100){
-                pool.freeObject(pool.requestObject())
+                pool.freeBuffer(pool.requestBuffer())
             }
         }
     }
@@ -39,18 +39,18 @@ class BufferPoolTests{
     fun `Suspended coroutine resume when a buffer is available`() = runTest{
         val pool = BufferPool(1,1)
 
-        val buffer = pool.requestObject()
+        val buffer = pool.requestBuffer()
 
         GlobalScope.launch {
             withTimeout(100){
-                pool.requestObject()
+                pool.requestBuffer()
                 assertTrue(true)
             }
         }
 
         delay(10)
 
-        pool.freeObject(buffer)
+        pool.freeBuffer(buffer)
 
     }
 
@@ -62,7 +62,7 @@ class BufferPoolTests{
         (0..2).forEach {
             try {
                 withTimeout(50){
-                    pool.requestObject()
+                    pool.requestBuffer()
                 }
             }catch (e : Exception){
                 assertEquals(2,it)

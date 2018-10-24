@@ -5,15 +5,12 @@ import kotlinx.coroutines.experimental.Deferred
 
 expect class TCPClientSocket{
 
-    /** IP address of the client */
-    val clientIP : String
-
     /** state of the socket */
     var isClosed : Boolean
         private set
 
     /**
-     * handler called when the socket close (expectedly or not)
+     * handler called when the socket close (expectantly or not)
      */
     fun bindCloseHandler(handler : () -> Unit)
 
@@ -28,33 +25,37 @@ expect class TCPClientSocket{
     fun forceClose()
 
     /**
-     * Used to do efficient read-intensive loop. The passed lambda must return true to continue the loop or false to exit.
-     * The call will suspend as long as the loop is running. Calling this method instead of a regular loop give roughly 50%
-     * more bandwidth. THE LOOP MUST NOT BE COMPUTATION INTENSIVE OR BLOCKING as the internal selector will call it synchronously and wait
-     * for it to return to continue its operations. The passed buffer will get reset at each iteration so you should use
-     * the buffer cursor position between two iterations so you must avoid leaking it to exterior coroutines/threads. each
-     * iteration will read n bytes ( 0 < n <= buffer.capacity() ).
+     * Used to do efficient read-intensive loops, it will basically execute the operation each time there is data to be read
+     * and avoid registrations/allocation between each iteration. The passed lambda must return true to continue the loop or
+     * false to exit. The call will suspend as long as the loop is running.
      *
-     * @return Number of byte read
+     * THE OPERATION MUST NOT BE COMPUTATION INTENSIVE OR BLOCKING as the internal selector will call it synchronously and wait
+     * for it to return before processing any other event. The passed buffer will be reset between each iteration so you should
+     * not use the buffer limit/cursor between two iterations and must avoid leaking it to exterior coroutines/threads. each
+     * iteration will read n bytes ( 0 < n <= buffer.capacity() ), set the cursor to 0 and the limit to the amount of data read.
+     *
+     * @return Total number of byte read
      */
     suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer) -> Boolean) : Long
 
     /**
-     * Perform a suspending read, the method will read n bytes ( 0 < n <= buffer.limit()-buffer.cursor() ) and update the cursor
+     * Perform a suspending read, the method will read n bytes ( 0 < n <= buffer.remaining() ) and update the cursor
      *
      * @return Number of byte read
      */
     suspend fun read(buffer: MultiplatformBuffer) : Int
 
     /**
-     * Perform a suspending read, the method will read n bytes ( minToRead < n <= buffer.size()-buffer.cursor() ) and update the cursor
+     * Perform a suspending read, the method will read n bytes ( minToRead < n <= buffer.remaining() ) and update the cursor
      *
      * @return Number of byte read
      */
     suspend fun read(buffer: MultiplatformBuffer, minToRead : Int) : Int
 
     /**
-     * Perform a suspending write, the method will not resume until all the buffer is written
+     * Perform a suspending write, the method will not return until all the buffer is written. The socket use an internal write
+     * queue, allowing multiple threads to concurrently write. Backpressure mechanisms should be implemented by the developper
+     * to avoid having too much data in the queue.
      *
      * @return Success of the operation
      */

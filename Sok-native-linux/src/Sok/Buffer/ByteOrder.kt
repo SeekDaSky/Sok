@@ -2,10 +2,15 @@ package Sok.Buffer
 
 import kotlinx.cinterop.*
 
+/**
+ * Class used to identify the Endianess and know if we need to change it when getting/setting values in a Buffer
+ */
 enum class ByteOrder {
     BIG_ENDIAN, LITTLE_ENDIAN;
 
     companion object {
+        //Contains the native Endianess of the current platform.
+        //Snippet copied froms the kotlinx-io project (https://github.com/Kotlin/kotlinx-io/tree/master/kotlinx-io-native/src/main/kotlin/kotlinx/io/core)
         private val native: ByteOrder
 
         init {

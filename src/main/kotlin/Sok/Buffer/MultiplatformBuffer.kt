@@ -1,23 +1,25 @@
 package Sok.Buffer
 
+import Sok.Exceptions.BufferDestroyedException
 import Sok.Exceptions.BufferOverflowException
 import Sok.Exceptions.BufferUnderflowException
 
 /**
  * MultiplatformBuffer is a class each platform must implement to abstract native buffer types (ByteBuffer on JVM, Buffer on Node.js
- * and a simple ByteArray on Native). In order to have the most consistent behaviour and avoid platform-specific exception leak the below class
+ * and ByteArray on Native). In order to have the most consistent behaviour and avoid platform-specific exception leak the below class
  * implement all the behavioural code (cursor management, exception throwing) and adds abstract methods for platform specific code.
  *
  * THIS CLASS IS NOT THREAD SAFE but you should obviously not be working with the same buffer on two different threads at the same time
  */
 abstract class MultiplatformBuffer(
-    //allocated capaity of the buffer
+    //allocated capacity of the buffer
     val capacity: Int
 ) {
-    //cursor keeping track of the position inside the buffer. Te setter must check the property 0 <= cursor <= limit <= capacity
+    //cursor keeping track of the position inside the buffer. The setter must check the property 0 <= cursor <= limit <= capacity
     //on the JVM the setter must also modify the ByteBuffer state too
     var cursor : Int = 0
         set(value) {
+            if(this.destroyed) throw BufferDestroyedException()
             require(value <= this.capacity && value <= this.limit && value >= 0)
             this.setCursorImpl(value)
             field = value
@@ -27,15 +29,22 @@ abstract class MultiplatformBuffer(
     //on the JVM the setter must also modify the ByteBuffer state too
     var limit : Int = this.capacity
         set(value) {
+            if(this.destroyed) throw BufferDestroyedException()
             require(value <= this.capacity && value >= this.cursor && value >= 0)
             this.setLimitImpl(value)
             field = value
         }
 
+    //state of the buffer, useful on Native platforms to know when to free memory and avoid any use-after-free operation, on
+    //other platforms it does nothing
+    var destroyed = false
+        protected set
+
     /**
      * Get a byte with its index in the buffer, the cursor will not be modified
      */
     operator fun get(index : Int) : Byte{
+        if(this.destroyed) throw BufferDestroyedException()
         return this.getByte(index)
     }
 
@@ -43,6 +52,7 @@ abstract class MultiplatformBuffer(
      * Get the byte at the current cursor position. If the index parameter is provided, the cursor will be ignored and not modified
      */
     fun getByte(index : Int? = null) : Byte{
+        if(this.destroyed) throw BufferDestroyedException()
         this.checkBounds(1,OperationType.Read,index)
         val byte = this.getByteImpl(index)
         if(index == null) this.cursor++
@@ -55,6 +65,7 @@ abstract class MultiplatformBuffer(
      * cursor will be ignored and not modified
      */
     fun getBytes(length : Int, index : Int? = null) : ByteArray{
+        if(this.destroyed) throw BufferDestroyedException()
         this.checkBounds(length,OperationType.Read,index)
         val array = this.getBytesImpl(length,index)
         if(index == null) this.cursor += length
@@ -67,6 +78,7 @@ abstract class MultiplatformBuffer(
      * not modified
      */
     fun getUByte(index : Int? = null) : Short{
+        if(this.destroyed) throw BufferDestroyedException()
         this.checkBounds(1,OperationType.Read,index)
         val byte = this.getUByteImpl(index)
         if(index == null) this.cursor++
@@ -78,6 +90,7 @@ abstract class MultiplatformBuffer(
      * Get the short at the current cursor position. If the index parameter is provided, the cursor will be ignored and not modified
      */
     fun getShort(index : Int? = null) : Short{
+        if(this.destroyed) throw BufferDestroyedException()
         this.checkBounds(2,OperationType.Read,index)
         val short = this.getShortImpl(index)
         if(index == null) this.cursor += 2
@@ -90,6 +103,7 @@ abstract class MultiplatformBuffer(
      * not modified
      */
     fun getUShort(index : Int? = null) : Int{
+        if(this.destroyed) throw BufferDestroyedException()
         this.checkBounds(2,OperationType.Read,index)
         val short = this.getUShortImpl(index)
         if(index == null) this.cursor += 2
@@ -101,6 +115,7 @@ abstract class MultiplatformBuffer(
      * Get the integer at the current cursor position. If the index parameter is provided, the cursor will be ignored and not modified
      */
     fun getInt(index : Int? = null) : Int{
+        if(this.destroyed) throw BufferDestroyedException()
         this.checkBounds(4,OperationType.Read,index)
         val int = this.getIntImpl(index)
         if(index == null) this.cursor += 4
@@ -113,6 +128,7 @@ abstract class MultiplatformBuffer(
      * not modified
      */
     fun getUInt(index : Int? = null) : Long{
+        if(this.destroyed) throw BufferDestroyedException()
         this.checkBounds(4,OperationType.Read,index)
         val int = this.getUIntImpl(index)
         if(index == null) this.cursor += 4
@@ -124,6 +140,7 @@ abstract class MultiplatformBuffer(
      * Get the long at the current cursor position. If the index parameter is provided, the cursor will be ignored and not modified
      */
     fun getLong(index : Int? = null) : Long{
+        if(this.destroyed) throw BufferDestroyedException()
         this.checkBounds(8,OperationType.Read,index)
         val long = this.getLongImpl(index)
         if(index == null) this.cursor += 8
@@ -136,6 +153,7 @@ abstract class MultiplatformBuffer(
      * cursor will be ignored and not modified
      */
     fun putBytes(array : ByteArray, index : Int? = null){
+        if(this.destroyed) throw BufferDestroyedException()
         this.checkBounds(array.size,OperationType.Write,index)
         this.putBytesImpl(array,index)
         if(index == null) this.cursor += array.size
@@ -147,6 +165,7 @@ abstract class MultiplatformBuffer(
      * cursor will be ignored and not modified
      */
     fun putByte(value : Byte, index : Int? = null){
+        if(this.destroyed) throw BufferDestroyedException()
         this.checkBounds(1,OperationType.Write,index)
         this.putByteImpl(value,index)
         if(index == null) this.cursor ++
@@ -158,6 +177,7 @@ abstract class MultiplatformBuffer(
      * cursor will be ignored and not modified
      */
     fun putShort(value : Short, index : Int? = null){
+        if(this.destroyed) throw BufferDestroyedException()
         this.checkBounds(2,OperationType.Write,index)
         this.putShortImpl(value,index)
         if(index == null) this.cursor += 2
@@ -169,6 +189,7 @@ abstract class MultiplatformBuffer(
      * cursor will be ignored and not modified
      */
     fun putInt(value : Int, index : Int? = null){
+        if(this.destroyed) throw BufferDestroyedException()
         this.checkBounds(4,OperationType.Write,index)
         this.putIntImpl(value,index)
         if(index == null) this.cursor += 4
@@ -180,6 +201,7 @@ abstract class MultiplatformBuffer(
      * cursor will be ignored and not modified
      */
     fun putLong(value : Long, index : Int? = null){
+        if(this.destroyed) throw BufferDestroyedException()
         this.checkBounds(8,OperationType.Write,index)
         this.putLongImpl(value,index)
         if(index == null) this.cursor += 8
@@ -202,6 +224,7 @@ abstract class MultiplatformBuffer(
      * Reset the buffer cursor and limit
      */
     fun reset(){
+        if(this.destroyed) throw BufferDestroyedException()
         this.limit = this.capacity
         this.cursor = 0
     }
@@ -210,6 +233,7 @@ abstract class MultiplatformBuffer(
      * Get the space available between the cursor and the limit of the buffer
      */
     fun remaining() : Int{
+        if(this.destroyed) throw BufferDestroyedException()
         return this.limit - this.cursor
     }
 
@@ -217,8 +241,15 @@ abstract class MultiplatformBuffer(
      * Return true if there is space between the cursor and the limit
      */
     fun hasRemaining() : Boolean{
+        if(this.destroyed) throw BufferDestroyedException()
         return this.remaining() != 0
     }
+
+    /**
+     * Destroy the ByteBuffer, you cannot call any method on the buffer after calling this. This method MUST be called on native platforms
+     * in order to free memory but you can skip it on any other platform
+     */
+    abstract fun destroy()
 
     /**
      * Used only by the JVM to synchronize the MultiplatformBuffer state with the ByteBuffer state

@@ -14,9 +14,6 @@ import kotlin.math.min
  */
 actual class TCPClientSocket{
 
-    //client IP
-    actual val clientIP = ""
-
     //socket state
     actual var isClosed = true
         private set

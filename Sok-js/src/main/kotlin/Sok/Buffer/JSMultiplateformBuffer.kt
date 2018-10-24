@@ -1,5 +1,6 @@
 package Sok.Buffer
 
+import Sok.Exceptions.BufferDestroyedException
 import org.khronos.webgl.Int8Array
 import org.khronos.webgl.Uint8Array
 
@@ -95,6 +96,7 @@ class JSMultiplatformBuffer : MultiplatformBuffer{
     }
 
     override fun toArray(): ByteArray {
+        if(this.destroyed) throw BufferDestroyedException()
         val tmp = Uint8Array(this.limit)
         this.backBuffer.copy(tmp,0,0,this.limit)
 
@@ -102,13 +104,19 @@ class JSMultiplatformBuffer : MultiplatformBuffer{
     }
 
     override fun clone(): MultiplatformBuffer {
+        if(this.destroyed) throw BufferDestroyedException()
         val tmp = JSMultiplatformBuffer(this.capacity)
         tmp.backBuffer = Buffer.from(this.toArray().toTypedArray())
 
         return tmp
     }
 
+    override fun destroy() {
+        this.destroyed = true
+    }
+
     fun nativeBuffer() : Buffer {
+        if(this.destroyed) throw BufferDestroyedException()
         return this.backBuffer
     }
 }

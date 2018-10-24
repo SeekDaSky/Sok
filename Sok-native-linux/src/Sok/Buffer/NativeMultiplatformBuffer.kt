@@ -5,7 +5,13 @@ import kotlinx.cinterop.*
 import platform.posix.memcpy
 import platform.posix.size_t
 import kotlin.experimental.and
+import Sok.Exceptions.BufferDestroyedException
 
+/**
+ * MultiplatformBuffer class of the Native platform. As Kotlin/Native does not include any kind of ByteBuffer (as JVM or Node.JS) we have
+ * to implement one ourself. I use a ByteArray, which is mapped on a native array of byte after compilation (great for performances). We detect
+ * the Endianess of the platform and swap it if needed (as the network is big Endian).
+ */
 class NativeMultiplatformBuffer : MultiplatformBuffer{
 
     //endianness of the platform
@@ -14,13 +20,17 @@ class NativeMultiplatformBuffer : MultiplatformBuffer{
     //pointer to the first item (C-like array)
     val firstPointer : CPointer<ByteVar>
 
+    //pinned object (that should be fr
+    val pinned : Pinned<ByteArray>?
+
     constructor(size : Int) : super(size){
         this.firstPointer = nativeHeap.allocArray<ByteVar>(size)
+        this.pinned = null
     }
 
     constructor(array : ByteArray) : super(array.size){
         //pin the array in memory (to have a stable pointer)
-        val pinned = array.pin()
+        this.pinned = array.pin()
         this.firstPointer = pinned.addressOf(0)
     }
 
@@ -110,55 +120,8 @@ class NativeMultiplatformBuffer : MultiplatformBuffer{
         (this.firstPointer + (index ?: this.cursor))!!.reinterpret<LongVar>()[0] = v
     }
 
-    /*
-
-    override fun getUByte(): Short {
-        this.checkAccess(this.cursor,1)
-
-        val v = this.firstPointer[this.cursor++]
-
-        //in order to have the same behavior across all MultiplatformBuffer implementation we have to copy the read value
-        val allocated = nativeHeap.allocArray<ByteVar>(2)
-        memcpy(allocated, cValuesOf(v),2)
-        return allocated.reinterpret<ShortVar>()[0]
-    }
-
-    override fun getUShort(): Int {
-        this.checkAccess(this.cursor,2)
-
-        var v = (this.firstPointer + this.cursor)!!.reinterpret<ShortVar>()[0]
-        if(!this.isBigEndian) v = this.swap(v)
-
-        this.cursor += 2
-
-        //in order to have the same behavior across all MultiplatformBuffer implementation we have to copy the read value
-        val allocated = nativeHeap.allocArray<ShortVar>(2)
-        memcpy(allocated, cValuesOf(v),2)
-        val int = allocated.reinterpret<IntVar>()[0]
-
-        return int
-
-    }
-
-    override fun getUInt(): Long {
-        this.checkAccess(this.cursor,4)
-
-        var v = (this.firstPointer + this.cursor)!!.reinterpret<IntVar>()[0]
-        if(!this.isBigEndian) v = this.swap(v)
-
-        this.cursor += 4
-
-        //in order to have the same behavior across all MultiplatformBuffer implementation we have to copy the read value
-        val allocated = nativeHeap.allocArray<IntVar>(2)
-        memcpy(allocated, cValuesOf(v),4)
-        val int = allocated.reinterpret<LongVar>()[0]
-
-        return int
-    }
-
-  */
-
     override fun toArray(): ByteArray {
+        if(this.destroyed) throw BufferDestroyedException()
         val tmpArr = ByteArray(this.limit)
         tmpArr.usePinned{
             memcpy(it.addressOf(0),this.firstPointer,this.limit.signExtend<size_t>())
@@ -168,6 +131,7 @@ class NativeMultiplatformBuffer : MultiplatformBuffer{
     }
 
     override fun clone(): MultiplatformBuffer {
+        if(this.destroyed) throw BufferDestroyedException()
         val tmp = NativeMultiplatformBuffer(this.capacity)
         memcpy(tmp.firstPointer,this.firstPointer,this.capacity.signExtend<size_t>())
         tmp.limit = this.limit
@@ -175,7 +139,17 @@ class NativeMultiplatformBuffer : MultiplatformBuffer{
     }
 
     fun nativePointer() : CPointer<ByteVar>{
+        if(this.destroyed) throw BufferDestroyedException()
         return this.firstPointer
+    }
+
+    override fun destroy(){
+        if(this.pinned == null){
+            nativeHeap.free(this.firstPointer)
+        }else{
+            this.pinned.unpin()
+        }
+        this.destroyed = true
     }
 
     override fun setCursorImpl(index: Int) {

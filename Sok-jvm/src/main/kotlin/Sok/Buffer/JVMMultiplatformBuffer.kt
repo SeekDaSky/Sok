@@ -1,8 +1,7 @@
 package Sok.Buffer
 
+import Sok.Exceptions.BufferDestroyedException
 import java.nio.ByteBuffer
-import kotlin.math.min
-
 
 class JVMMultiplatformBuffer : MultiplatformBuffer {
 
@@ -77,6 +76,7 @@ class JVMMultiplatformBuffer : MultiplatformBuffer {
     }
 
     override fun toArray(): ByteArray {
+        if(this.destroyed) throw BufferDestroyedException()
         if(this.backBuffer.capacity() != this.backBuffer.limit() || !this.backBuffer.hasArray()){
             val tmp = ByteArray(this.limit)
             //backup cursor
@@ -93,6 +93,7 @@ class JVMMultiplatformBuffer : MultiplatformBuffer {
     }
 
     override fun clone(): MultiplatformBuffer {
+        if(this.destroyed) throw BufferDestroyedException()
         return JVMMultiplatformBuffer(this.toArray())
     }
 
@@ -104,7 +105,12 @@ class JVMMultiplatformBuffer : MultiplatformBuffer {
         this.backBuffer.limit(index)
     }
 
+    override fun destroy() {
+        this.destroyed = true
+    }
+
     fun nativeBuffer() : ByteBuffer{
+        if(this.destroyed) throw BufferDestroyedException()
         return this.backBuffer
     }
 }

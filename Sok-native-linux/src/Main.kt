@@ -29,7 +29,7 @@ fun main(args: Array<String>) = runBlocking{
                     val stop = nativeHeap.alloc<timeval>()
 
                     while(!socket.isClosed){
-                        val buffer = bufferPool.requestObject()
+                        val buffer = bufferPool.requestBuffer()
 
                         gettimeofday(start.ptr,null)
                         var received = 0
@@ -47,7 +47,7 @@ fun main(args: Array<String>) = runBlocking{
                         }
                         gettimeofday(stop.ptr,null)
 
-                        bufferPool.freeObject(buffer)
+                        bufferPool.freeBuffer(buffer)
 
                         val time = (stop.tv_usec-start.tv_usec)/1_000_000
                         val dataSizeMO = dataSize/1_000_000.0
