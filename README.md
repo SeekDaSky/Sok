@@ -2,9 +2,35 @@
 
  ![](https://img.shields.io/badge/Kotlin-JVM-green.svg) ![](https://img.shields.io/badge/Kotlin-JS-green.svg)  ![](https://img.shields.io/badge/Kotlin-Native-green.svg)
 
+## Table of content
 
+[I - Introduction](#introduction)
 
-[TOC]
+[II - Overview](#overview)
+
+[III - The Server class](#the-server-class)
+
+[IV - The Client class](#the-client-class)
+
+​	[1 - Read](#read)
+
+​	[2 - Write](#write)
+
+​	[3 - BulkRead](#bulkread)
+
+[V - The Buffer class](#the-buffer-class)
+
+[VI - Platform specific behaviours](#platform-specific-behaviours)
+
+​	[1 - Java](#java)
+
+​	[2 - Native](#native)
+
+​	[3 - JS](#js)
+
+[VII - Plans for the future](#plans-for-the-future)
+
+[VIII - Contributing](#contributing)
 
 ## Introduction
 
@@ -14,7 +40,7 @@
 
 - JVM >= 7 (Android not tested but it should theoratically work)
 - Node.js >=  9.4.0 (lower versions may work, not tested)
-- Linux x64
+- Native - Linux x64
 
 ​	There is no plan to support Windows or OSX/iOS platforms for now
 
@@ -22,7 +48,7 @@
 
 ## Overview
 
-​	Sok can manage server and client sockets, it is multithreaded on JVM and single-threaded on Native and JS. All platforms implement the same interface. There is a few platform-specific behaviour that [are listed here](#platform-specific-behaviours). The behaviour of the library is a quite similar with the [Java NIO technologies](https://en.wikipedia.org/wiki/Non-blocking_I/O_(Java)):
+​	Sok can manage server and client sockets, it is multithreaded on JVM and single-threaded on Native and JS. All platforms implement the same interface. There is a few platform-specific behaviour that [are listed here](#platform-specific-behaviours). The behaviour of the library is a quite similar to the [Java NIO technology](https://en.wikipedia.org/wiki/Non-blocking_I/O_(Java)):
 
 - Everything is buffer based
 - I/O operations update the buffer cursor and respect the buffer limit
@@ -93,7 +119,7 @@ class TCPServerSocket{
 
 ## The Client class
 
-​	The client class allows the developper to perform I/O actions on socket. Thsi class is created when either accepting a client with the Server class or with the `createTCPClientSOcket` method:
+​	The client class allows the developper to perform I/O actions on socket. This class is created when either accepting a client with the Server class or with the `createTCPClientSOcket` top-level function:
 
 ```kotlin
 suspend fun createTCPClientSocket(address : String, port : Int ) : TCPClientSocket
@@ -113,7 +139,7 @@ suspend fun read(buffer: MultiplatformBuffer) : Int
 suspend fun read(buffer: MultiplatformBuffer, minToRead : Int) : Int
 ```
 
-​	Both methods will return -1 if an error occured and the socket will be closed, calling the close handler. Those methods are not thread safe and only one can be performed at a time. Data will be read from the current buffer cursor position until the limit of the buffer. Without a `minToRead`parameter given, the minimum read is 1 byte.
+​	Both methods will return -1 if an error occured and the socket will be closed, calling the close handler. Those methods are not thread safe and only one can be performed at a time. Data will be read from the current buffer cursor position until the limit of the buffer. Without a `minToRead`parameter given, the minimum amount of data is 1 byte.
 
 ​	Once the read operation is performed, the cursor of the buffer will be incremented by the number of byte read and the method will return that number.
 
@@ -129,13 +155,13 @@ suspend fun write(buffer: MultiplatformBuffer) : Boolean
 
 ### BulkRead
 
-​	This method allows the developper to perform read-intesive loops efficiently. When using this method instead of a while loop, Sok can perform certain optimisations that can greatly improve I/O performances. The signature of the method is:
+​	This method allows the developper to perform a read-intesive loop efficiently. When using this method instead of a while loop, Sok can perform certain optimisations that can greatly improve I/O performances. The signature of the method is:
 
 ```kotlin
 suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer, read : Int) -> Boolean) : Long
 ```
 
-​	The method will suspend the calling coroutine and execute the `operation`every time there is data to be read. The `operation`will take as parameter the buffer containing the data, the amount of data and return a `Boolean`, true if the loop should continue, false if the method should return. the `operation` MUST not be computation intesive or blocking as Sok execute it synchronously, thus blocking other sockets while doing so.
+​	The method will suspend the calling coroutine and execute the `operation`every time there is data to be read. The `operation`will take as parameter the buffer containing the data, the amount of data and return a `true` if the loop should continue, `false` if the method should return. the `operation` MUST not be computation intesive or blocking as Sok execute it synchronously, thus blocking other sockets while doing so.
 
 ​	The use case imagined for this method is the follwing:
 
@@ -150,7 +176,7 @@ while(!socket.isClosed){
         received += read
         //process the data and store them somewhere
         ...
-        //set the limit of the bufer to read the exact amount of data
+        //set the limit of the buffer to read the exact amount of data
         buffer.limit = min(toReceive - received, buffer.capacity)
         //return if we should continue the loop or not
         received == toReceive
@@ -162,7 +188,7 @@ while(!socket.isClosed){
 
 ​	The Buffer class is the heart of any I/O operation. It's behavior is similar to the [Java NIO ByteBuffer](https://docs.oracle.com/javase/7/docs/api/java/nio/ByteBuffer.html). it also include primitives to read unsigned types. Right now as Sok uses Kotlin 1.2.70 unsigned types are represented with bigger types (an unsigned Byte is a Short, an unsigned Short is an Int, etc...) but as soon as Kotlin 1.3 comes out the Buffer class will use native unsigned types.
 
-​	A Buffer can be created either by allocating memory or using an existing ByteArray as a backing.
+​	A Buffer can be created either by allocating memory or using an existing ByteArray as a back buffer, thus avoiding copy.
 
 ```kotlin
 fun allocMultiplatformBuffer(size :Int) : MultiplatformBuffer
@@ -170,7 +196,7 @@ fun allocMultiplatformBuffer(size :Int) : MultiplatformBuffer
 fun wrapMultiplatformBuffer(array : ByteArray) : MultiplatformBuffer
 ```
 
-​	On Native platforms it is important to destroy the buffer using the `destroy()` method when it is not needed anymore in order to free memory.
+​	On Native platforms it is important to destroy the buffer using the `destroy()` method when it is not needed anymore in order to free memory, note that if you destroy a buffer that use a back buffer, the ByteBuffer class will simply `unpin()` the array.
 
 ​	Sok also provide a BufferPool class, usefull to recycle buffers and reduce garbage collection pressure
 
@@ -196,11 +222,11 @@ class BufferPool(val maximumNumberOfBuffer : Int, val bufferSize : Int) {
 
 ### Java
 
-​	Java is the primary target of Sok so its behaviour is the default one. The only thing that the JVM target have in addition compared to the other is the `allocDirectMultiplatformBuffer` method which allocate a direct ByteBuffer instead of a heap ByteBuffer. For more information about the difference between the two, [read this thread](https://stackoverflow.com/questions/5670862/bytebuffer-allocate-vs-bytebuffer-allocatedirect).
+​	Java is the primary target of Sok so its behaviour is the default one. The only thing that the JVM target have in addition compared to the other is the `allocDirectMultiplatformBuffer` function which allocate a direct ByteBuffer instead of a heap ByteBuffer. For more information about the difference between the two, [read this thread](https://stackoverflow.com/questions/5670862/bytebuffer-allocate-vs-bytebuffer-allocatedirect).
 
 ### Native
 
-​	Because the `kotlinx.coroutines` library does not support multithreading on native platform yet, Sok is single threaded. Because of this you MUST have a running event loop in your kotlin program when using Sok, to acheive this, the simplest way is making `runBlocking` the first statement in your `main` function. In addition to this you might want to bind the Sok Selector class scope to this event loop, this is optional but recomended if you don't want to prevent `runBlocking` from exiting unexpectedly. You can read more on Structured concurrency [here](https://medium.com/@elizarov/structured-concurrency-722d765aa952), and `kotlinx.coroutines` plans for multithreading [here](https://github.com/Kotlin/kotlinx.coroutines/issues/462)
+​	Because the `kotlinx.coroutines` library does not support multithreading on native platform yet, Sok is single threaded. Because of this you MUST have a running event loop in your kotlin program, to acheive this the simplest way is making `runBlocking` the first statement of your `main` function. In addition to this you might want to bind the Sok Selector class scope to this event loop, this is optional but recomended if you don't want to prevent `runBlocking` from exiting thus closing the event loop. You can read more on Structured concurrency [here](https://medium.com/@elizarov/structured-concurrency-722d765aa952), and `kotlinx.coroutines` plans for multithreading [here](https://github.com/Kotlin/kotlinx.coroutines/issues/462)
 
 ​	Example:
 
@@ -222,6 +248,7 @@ fun main(args: Array<String>) = runBlocking{
 ​	Sok is not feature complete or stable yet, a lot is to be done and feedback on the API is welcome. The plans for Sok are:
 
 - Migrate everything to Kotlin 1.3
+- Publish the library on Binatray
 - Enhance the test suite
 - Think of a real exception model
 - Implement a way to set/get socket options
