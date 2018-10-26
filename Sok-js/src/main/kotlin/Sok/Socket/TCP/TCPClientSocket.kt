@@ -166,24 +166,22 @@ actual class TCPClientSocket{
      * of doing a read() loop, it can use the bulkRead method to register a function that will stay registered to the
      * "readable" event and that will be called each time there is data tor read
      */
-    actual suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer) -> Boolean) : Long{
+    actual suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer, read : Int) -> Boolean) : Long{
         if(this.isClosed) return -1
 
         var total = 0L
         (buffer as JSMultiplatformBuffer)
 
-        buffer.reset()
+        buffer.cursor = 0
         this.registerReadable{
             //read while there is data
             while (this.readInto(buffer)) {
                 total += buffer.cursor
-                buffer.limit = buffer.cursor
+                val read = buffer.cursor
                 buffer.cursor = 0
                 //if the operation returns false, unregister
-                if (!operation(buffer)) {
+                if (!operation(buffer, read)) {
                     return@registerReadable false
-                } else {
-                    buffer.reset()
                 }
             }
 

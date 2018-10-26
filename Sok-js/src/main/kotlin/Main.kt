@@ -30,9 +30,9 @@ fun nomain(args: Array<String>){
                     val starttime = Date.now()
                     var received = 0
 
-                    socket.bulkRead(buffer){
+                    socket.bulkRead(buffer){ _, read ->
 
-                        received += it.limit
+                        received += read
 
                         received >= dataSize
                     }

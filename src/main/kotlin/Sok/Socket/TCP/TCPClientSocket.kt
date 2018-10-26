@@ -30,13 +30,14 @@ expect class TCPClientSocket{
      * false to exit. The call will suspend as long as the loop is running.
      *
      * THE OPERATION MUST NOT BE COMPUTATION INTENSIVE OR BLOCKING as the internal selector will call it synchronously and wait
-     * for it to return before processing any other event. The passed buffer will be reset between each iteration so you should
-     * not use the buffer limit/cursor between two iterations and must avoid leaking it to exterior coroutines/threads. each
-     * iteration will read n bytes ( 0 < n <= buffer.capacity() ), set the cursor to 0 and the limit to the amount of data read.
+     * for it to return before processing any other event. The passed buffer cursor will be reset between each iteration so you should
+     * not use the buffer cursor between two iterations and must avoid leaking it to exterior coroutines/threads. each
+     * iteration will read n bytes ( 0 < n <= buffer.limit ) and set the cursor to 0, the read parameter of the operation is the
+     * amount of data read.
      *
      * @return Total number of byte read
      */
-    suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer) -> Boolean) : Long
+    suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer, read : Int) -> Boolean) : Long
 
     /**
      * Perform a suspending read, the method will read n bytes ( 0 < n <= buffer.remaining() ) and update the cursor

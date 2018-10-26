@@ -34,9 +34,9 @@ fun main(args: Array<String>) = runBlocking{
                         gettimeofday(start.ptr,null)
                         var received = 0
 
-                        socket.bulkRead(buffer){
+                        socket.bulkRead(buffer){ _,read ->
 
-                            received += it.limit
+                            received += read
 
                             if(received >= dataSize){
                                 received = 0

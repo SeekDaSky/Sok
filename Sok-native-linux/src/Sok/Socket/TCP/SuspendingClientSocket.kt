@@ -93,7 +93,7 @@ actual class TCPClientSocket{
         }
     }
 
-    actual suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer) -> Boolean) : Long {
+    actual suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer, read : Int) -> Boolean) : Long {
         if(this.isClosed) return -1
 
         require(!this.isReading.value)
@@ -103,17 +103,15 @@ actual class TCPClientSocket{
         var read : Long = 0
         this.selectionKey.selectAlways(Interests.OP_READ){
 
-            buffer.reset()
-            val result = read(this.selectionKey.socket,buffer.nativePointer(),buffer.capacity.signExtend<size_t>()).toInt()
+            val result = read(this.selectionKey.socket,buffer.nativePointer(),buffer.limit.signExtend<size_t>()).toInt()
 
             if(result == -1 || result == 0){
                 read = -1
                 false
             }else{
                 read += result
-                buffer.limit = result
                 buffer.cursor = 0
-                operation(buffer)
+                operation(buffer,result)
             }
         }
 

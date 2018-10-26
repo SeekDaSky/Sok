@@ -9,6 +9,7 @@ import Sok.Socket.TCP.createTCPClientSocket
 import Sok.Test.runTest
 import kotlinx.coroutines.experimental.*
 import Sok.Test.JsName
+import kotlin.math.min
 import kotlin.test.*
 
 class ClientTests {
@@ -130,8 +131,9 @@ class ClientTests {
             val client = createTCPClientSocket("localhost", 9999)
 
             var received = 0
-            client.bulkRead(allocMultiplatformBuffer(65_536)) {
-                received += it.limit
+            client.bulkRead(allocMultiplatformBuffer(65_536)) { buffer, read ->
+                received += read
+                buffer.limit = min(data.size - received,buffer.capacity)
                 received != data.size
             }
             assertEquals(data.size, received)
@@ -258,7 +260,7 @@ class ClientTests {
             assertEquals(false, client.write(allocMultiplatformBuffer(1)))
             assertEquals(-1, client.read(allocMultiplatformBuffer(1)))
             assertEquals(-1, client.read(allocMultiplatformBuffer(1),1))
-            assertEquals(-1, client.bulkRead(allocMultiplatformBuffer(1)){false})
+            assertEquals(-1, client.bulkRead(allocMultiplatformBuffer(1)){ _,_ -> false})
         }
     }
 

@@ -102,7 +102,7 @@ actual class TCPClientSocket {
         }
     }
 
-    actual suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer) -> Boolean) : Long{
+    actual suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer, read : Int) -> Boolean) : Long{
         if(this.isClosed){
             return -1
         }
@@ -111,18 +111,16 @@ actual class TCPClientSocket {
         var read : Long = 0
 
         this.suspentionMap.selectAlways(SelectionKey.OP_READ){
-            buffer.reset()
+            buffer.cursor = 0
 
             val tmpRead = this.channel.read(buffer.nativeBuffer())
             if(tmpRead > 0){
                 read += tmpRead
 
-                buffer.nativeBuffer().flip()
-                buffer.limit = buffer.nativeBuffer().limit()
                 buffer.cursor = 0
 
                 //let the operation registered by the user tell if we need another selection
-                operation.invoke(buffer)
+                operation.invoke(buffer,tmpRead)
             }else{
                 read = -1
                 false

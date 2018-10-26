@@ -7,7 +7,7 @@ expect class TCPServerSocket{
         private set
 
     /**
-     * Start a listening socket on the given address and port
+     * Start a listening socket on the given address (or alias) and port
      */
     constructor(address : String, port : Int)
 

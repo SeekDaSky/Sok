@@ -1,6 +1,7 @@
 import Sok.Buffer.BufferPool
 import Sok.Buffer.MultiplatformBuffer
 import Sok.Buffer.allocDirectMultiplatformBuffer
+import Sok.Buffer.allocMultiplatformBuffer
 import Sok.Socket.TCP.TCPServerSocket
 import kotlinx.coroutines.experimental.*
 val dataSize = 16777216
@@ -12,12 +13,12 @@ fun main(args: Array<String>){
 
     val readSpeedList = mutableListOf<Double>()
 
-    val socket = TCPServerSocket("localhost", 9999)
+    val server = TCPServerSocket("localhost", 9999)
 
     GlobalScope.launch {
-        while(!socket.isClosed) {
+        while(!server.isClosed) {
 
-            val socket = socket.accept()
+            val socket = server.accept()
 
             GlobalScope.launch {
 
@@ -28,9 +29,9 @@ fun main(args: Array<String>){
                     val starttime = System.currentTimeMillis()
                     var received = 0
 
-                    socket.bulkRead(buffer){
+                    socket.bulkRead(buffer){ _, read ->
 
-                        received += it.limit
+                        received += read
 
                         if(received >= dataSize){
                             received = 0
@@ -58,7 +59,7 @@ fun main(args: Array<String>){
         }
     }
 
-    socket.bindCloseHandler {
+    server.bindCloseHandler {
 
     }
 

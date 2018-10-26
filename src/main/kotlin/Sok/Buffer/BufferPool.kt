@@ -12,7 +12,7 @@ import kotlinx.coroutines.experimental.channels.Channel
  *
  * We need to use a factory lambda to let the developer use a DirectByteBuffer pool on the JVM instead of a HeapByteBuffer one
  */
-open class BufferPool(val maximumNumberOfBuffer : Int, val bufferSize : Int, val bufferBuilder : (bufferSize : Int) -> MultiplatformBuffer = { allocMultiplatformBuffer(bufferSize)}) {
+class BufferPool(val maximumNumberOfBuffer : Int, val bufferSize : Int, val bufferBuilder : (bufferSize : Int) -> MultiplatformBuffer = { allocMultiplatformBuffer(bufferSize)}) {
 
     private val allocatedBuffers = atomic(0)
 
