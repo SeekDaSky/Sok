@@ -1,7 +1,6 @@
 import Sok.Buffer.BufferPool
 import Sok.Buffer.MultiplatformBuffer
 import Sok.Buffer.allocDirectMultiplatformBuffer
-import Sok.Buffer.allocMultiplatformBuffer
 import Sok.Socket.TCP.TCPServerSocket
 import kotlinx.coroutines.*
 val dataSize = 16777216
@@ -9,7 +8,7 @@ val bufferPool = BufferPool(16,65536){
     allocDirectMultiplatformBuffer(it)
 }
 
-fun main(args: Array<String>){
+fun main(){
 
     val readSpeedList = mutableListOf<Double>()
 

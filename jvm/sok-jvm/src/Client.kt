@@ -6,7 +6,7 @@ import kotlinx.coroutines.runBlocking
 import java.lang.Exception
 
 
-fun main(args: Array<String>) = runBlocking {
+fun main() = runBlocking {
 
     val numberOfClients = 1
     val writeSpeedList = mutableListOf<Double>()

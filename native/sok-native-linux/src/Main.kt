@@ -11,7 +11,7 @@ import platform.posix.timeval
 val dataSize = 16_777_216
 val bufferPool = BufferPool(16,65536)
 
-fun main(args: Array<String>) = runBlocking{
+fun main() = runBlocking{
     Selector.setDefaultScope(this)
 
     val readSpeedList = mutableListOf<Double>()

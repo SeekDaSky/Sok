@@ -12,7 +12,7 @@ val dataSize = 16777216
 val readSpeedList = mutableListOf<Double>()
 val writeSpeedList = mutableListOf<Double>()
 
-fun nomain(args: Array<String>){
+fun nomain(){
 
     val server = TCPServerSocket("localhost", 9999)
 
@@ -62,7 +62,7 @@ fun nomain(args: Array<String>){
     waitRead()
 }
 
-fun Notmain(args: Array<String>){
+fun Notmain(){
     GlobalScope.launch {
 
         val numberOfClients = 1
