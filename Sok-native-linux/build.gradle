@@ -1,5 +1,4 @@
 buildscript {
-    ext.kotlin_native_version = '0.8.2'
 
     repositories {
         mavenCentral()
@@ -23,8 +22,8 @@ repositories {
 dependencies {
     expectedBy project(":")
 
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core-native:0.26.1'
-    implementation 'org.jetbrains.kotlinx:atomicfu-native:0.11.5'
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core-native:$coroutine_version"
+    implementation "org.jetbrains.kotlinx:atomicfu-native:$atomicFU_version"
 
     compile "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
 }

@@ -7,7 +7,7 @@ import Sok.Exceptions.ConnectionRefusedException
 import Sok.Socket.TCP.TCPServerSocket
 import Sok.Socket.TCP.createTCPClientSocket
 import Sok.Test.runTest
-import kotlinx.coroutines.experimental.*
+import kotlinx.coroutines.*
 import Sok.Test.JsName
 import kotlin.math.min
 import kotlin.test.*

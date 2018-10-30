@@ -77,14 +77,14 @@ abstract class MultiplatformBuffer(
      * Get the unsigned byte at the current cursor position. If the index parameter is provided, the cursor will be ignored and
      * not modified
      */
-    fun getUByte(index : Int? = null) : Short{
+    fun getUByte(index : Int? = null) : UByte{
         if(this.destroyed) throw BufferDestroyedException()
         this.checkBounds(1,OperationType.Read,index)
         val byte = this.getUByteImpl(index)
         if(index == null) this.cursor++
         return byte
     }
-    protected abstract fun getUByteImpl(index : Int? = null) : Short
+    protected abstract fun getUByteImpl(index : Int? = null) : UByte
 
     /**
      * Get the short at the current cursor position. If the index parameter is provided, the cursor will be ignored and not modified
@@ -102,14 +102,14 @@ abstract class MultiplatformBuffer(
      * Get the unsigned short at the current cursor position. If the index parameter is provided, the cursor will be ignored and
      * not modified
      */
-    fun getUShort(index : Int? = null) : Int{
+    fun getUShort(index : Int? = null) : UShort{
         if(this.destroyed) throw BufferDestroyedException()
         this.checkBounds(2,OperationType.Read,index)
         val short = this.getUShortImpl(index)
         if(index == null) this.cursor += 2
         return short
     }
-    protected abstract fun getUShortImpl(index : Int? = null) : Int
+    protected abstract fun getUShortImpl(index : Int? = null) : UShort
 
     /**
      * Get the integer at the current cursor position. If the index parameter is provided, the cursor will be ignored and not modified
@@ -127,14 +127,14 @@ abstract class MultiplatformBuffer(
      * Get the unsigned integer at the current cursor position. If the index parameter is provided, the cursor will be ignored and
      * not modified
      */
-    fun getUInt(index : Int? = null) : Long{
+    fun getUInt(index : Int? = null) : UInt{
         if(this.destroyed) throw BufferDestroyedException()
         this.checkBounds(4,OperationType.Read,index)
         val int = this.getUIntImpl(index)
         if(index == null) this.cursor += 4
         return int
     }
-    protected abstract fun getUIntImpl(index : Int? = null) : Long
+    protected abstract fun getUIntImpl(index : Int? = null) : UInt
 
     /**
      * Get the long at the current cursor position. If the index parameter is provided, the cursor will be ignored and not modified
@@ -147,6 +147,18 @@ abstract class MultiplatformBuffer(
         return long
     }
     protected abstract fun getLongImpl(index : Int? = null) : Long
+
+    /**
+     * Get the unsigned long at the current cursor position. If the index parameter is provided, the cursor will be ignored and not modified
+     */
+    fun getULong(index : Int? = null) : ULong{
+        if(this.destroyed) throw BufferDestroyedException()
+        this.checkBounds(8,OperationType.Read,index)
+        val long = this.getULongImpl(index)
+        if(index == null) this.cursor += 8
+        return long
+    }
+    protected abstract fun getULongImpl(index : Int? = null) : ULong
 
     /**
      * Put the given byte array inside the buffer starting at the buffer cursor position. If the index parameter is provided, the

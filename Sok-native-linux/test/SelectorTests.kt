@@ -3,10 +3,7 @@ import kotlin.test.*
 import Sok.Selector.*
 import Sok.Test.runTest
 
-import konan.worker.TransferMode
-import konan.worker.startWorker
-
-import kotlinx.coroutines.experimental.*
+import kotlinx.coroutines.*
 
 import platform.posix.*
 import platform.linux.eventfd
@@ -37,12 +34,12 @@ class SelectorTests{
             val sent: Long = 2
 
             sk.select(Interests.OP_WRITE)
-            write(socket, cValuesOf(sent), sizeOf<LongVar>())
+            write(socket, cValuesOf(sent), sizeOf<LongVar>().toULong())
 
             sk.select(Interests.OP_READ)
             memScoped {
                 val read = allocArray<LongVar>(1)
-                read(sk.socket, read, sizeOf<LongVar>())
+                read(sk.socket, read, sizeOf<LongVar>().toULong())
                 assertEquals(sent, read[0])
             }
         }
@@ -62,7 +59,7 @@ class SelectorTests{
                 do {
                     sk.select(Interests.OP_WRITE)
                     sent++
-                    write(socket, cValuesOf(sent), sizeOf<LongVar>())
+                    write(socket, cValuesOf(sent), sizeOf<LongVar>().toULong())
 
                 } while (sent != numberOfExchange)
                 true
@@ -73,7 +70,7 @@ class SelectorTests{
                 sk.select(Interests.OP_READ)
                 memScoped {
                     val read = allocArray<LongVar>(1)
-                    read(sk.socket, read, sizeOf<LongVar>())
+                    read(sk.socket, read, sizeOf<LongVar>().toULong())
                     received = read[0]
                 }
             } while (received != numberOfExchange)
@@ -95,7 +92,7 @@ class SelectorTests{
                 var sent: Long = 1
                 sk.selectAlways(Interests.OP_WRITE) {
                     sent++
-                    write(socket, cValuesOf(sent), sizeOf<LongVar>())
+                    write(socket, cValuesOf(sent), sizeOf<LongVar>().toULong())
 
                     sent != numberOfExchange
                 }
@@ -106,7 +103,7 @@ class SelectorTests{
             sk.selectAlways(Interests.OP_READ) {
                 memScoped {
                     val read = allocArray<LongVar>(1)
-                    read(sk.socket, read, sizeOf<LongVar>())
+                    read(sk.socket, read, sizeOf<LongVar>().toULong())
                     received = read[0]
                 }
                 received != numberOfExchange
@@ -135,7 +132,7 @@ class SelectorTests{
 }
 
 fun msleep(millis : Int){
-    usleep(1000*millis)
+    usleep((1000*millis).toUInt())
 }
 
 fun makeNonBlockingEventFD() : Int{

@@ -6,8 +6,8 @@ import Sok.Exceptions.*
 import kotlinx.atomicfu.AtomicBoolean
 import kotlinx.atomicfu.AtomicRef
 import kotlinx.atomicfu.atomic
-import kotlinx.coroutines.experimental.*
-import kotlinx.coroutines.experimental.channels.*
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.*
 import kotlinx.cinterop.*
 import platform.posix.*
 
@@ -53,7 +53,7 @@ actual class TCPClientSocket{
         return memScoped{
             val size = alloc<IntVar>()
             val len = alloc<socklen_tVar>()
-            len.value = sizeOf<IntVar>().toInt()
+            len.value = sizeOf<IntVar>().toUInt()
             getsockopt(this@TCPClientSocket.selectionKey.socket, SOL_SOCKET, SO_SNDBUF, size.ptr, len.ptr)
             size.value
         }
@@ -103,7 +103,7 @@ actual class TCPClientSocket{
         var read : Long = 0
         this.selectionKey.selectAlways(Interests.OP_READ){
 
-            val result = read(this.selectionKey.socket,buffer.nativePointer(),buffer.limit.signExtend<size_t>()).toInt()
+            val result = read(this.selectionKey.socket,buffer.nativePointer(),buffer.limit.toULong()).toInt()
 
             if(result == -1 || result == 0){
                 read = -1
@@ -133,7 +133,7 @@ actual class TCPClientSocket{
 
         buffer as NativeMultiplatformBuffer
 
-        val result = read(this.selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().signExtend<size_t>()).toInt()
+        val result = read(this.selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().toULong()).toInt()
 
         if(result == -1 || result == 0){
             this.close()
@@ -158,7 +158,7 @@ actual class TCPClientSocket{
         var read = 0
 
         this.selectionKey.selectAlways(Interests.OP_READ){
-            val result = read(this.selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().signExtend<size_t>()).toInt()
+            val result = read(this.selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().toULong()).toInt()
 
             if(result == -1){
                 read = -1
@@ -202,7 +202,7 @@ actual class TCPClientSocket{
 
             if(buffer.limit > sendBufferSize){
                 selectionKey.selectAlways(Interests.OP_WRITE){
-                    val result = write(selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().signExtend<size_t>()).toInt()
+                    val result = write(selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().toULong()).toInt()
 
                     if(result == -1){
                         request.deferred.complete(false)
@@ -221,7 +221,7 @@ actual class TCPClientSocket{
             }else{
                 while (buffer.remaining() > 0){
 
-                    val result = write(selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().signExtend<size_t>()).toInt()
+                    val result = write(selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().toULong()).toInt()
 
                     if(result == -1){
                         request.deferred.complete(false)
@@ -251,7 +251,7 @@ actual suspend fun createTCPClientSocket(address : String, port : Int ) : TCPCli
 
         //set hints
         with(hints) {
-            memset(this.ptr, 0, addrinfo.size)
+            memset(this.ptr, 0, addrinfo.size.toULong())
             this.ai_family = AF_UNSPEC
             this.ai_socktype = SOCK_STREAM
             this.ai_flags = 0
@@ -288,7 +288,7 @@ actual suspend fun createTCPClientSocket(address : String, port : Int ) : TCPCli
 
         val error = alloc<IntVar>()
         val len = alloc<socklen_tVar>()
-        len.value = sizeOf<IntVar>().toInt()
+        len.value = sizeOf<IntVar>().toUInt()
         val retval = getsockopt (socket, SOL_SOCKET, SO_ERROR, error.ptr, len.ptr)
 
         if(retval == -1 || error.value != 0){

@@ -2,12 +2,14 @@ package Sok.Selector
 
 import kotlinx.atomicfu.AtomicRef
 import kotlinx.atomicfu.atomic
-import kotlinx.coroutines.experimental.*
-import kotlinx.coroutines.experimental.channels.*
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.*
 import java.nio.channels.CancelledKeyException
 import java.nio.channels.SelectableChannel
 import java.nio.channels.SelectionKey
 import java.nio.channels.Selector
+import java.util.concurrent.Executors
+import kotlin.coroutines.resume
 
 class Selector {
 
@@ -42,7 +44,7 @@ class Selector {
     var isInSelection = true
 
     //selection thread and coroutine
-    private val thread = newSingleThreadContext("SelectorThread")
+    private val thread = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
     val coroutineScope = CoroutineScope(this.thread)
     private val mainLoop : Job
 

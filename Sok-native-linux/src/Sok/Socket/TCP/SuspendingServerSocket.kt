@@ -5,7 +5,7 @@ import kotlinx.atomicfu.AtomicBoolean
 import kotlinx.atomicfu.atomic
 import kotlinx.cinterop.*
 import platform.posix.*
-import kotlinx.coroutines.experimental.*
+import kotlinx.coroutines.*
 
 actual class TCPServerSocket{
 
@@ -30,7 +30,7 @@ actual class TCPServerSocket{
 
             //set hints
             with(hints) {
-                memset(this.ptr, 0, addrinfo.size)
+                memset(this.ptr, 0, addrinfo.size.toULong())
                 this.ai_family = AF_UNSPEC
                 this.ai_socktype = SOCK_STREAM
                 this.ai_flags = 0

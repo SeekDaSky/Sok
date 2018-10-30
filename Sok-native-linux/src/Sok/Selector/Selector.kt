@@ -6,8 +6,8 @@ import kotlinx.atomicfu.atomic
 import platform.posix.*
 import kotlinx.cinterop.*
 import kotlin.experimental.and
-import kotlinx.coroutines.experimental.*
-import kotlin.coroutines.experimental.*
+import kotlinx.coroutines.*
+import kotlin.coroutines.*
 
 private val _defaultSelector : AtomicRef<Selector?> = atomic(null)
 private val _defaultScope : AtomicRef<CoroutineScope> = atomic(GlobalScope)
@@ -113,7 +113,7 @@ class Selector private constructor (val scope : CoroutineScope) {
         }
 
         //perform call
-        val result = poll(this.pollArrayStruct, this.registeredSockets.size.toLong(), timeout)
+        val result = poll(this.pollArrayStruct, this.registeredSockets.size.toULong(), timeout)
 
         //update state
         this.isInSelection.value = false

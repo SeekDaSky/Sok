@@ -1,7 +1,7 @@
 package Sok.Buffer
 
 import kotlinx.atomicfu.atomic
-import kotlinx.coroutines.experimental.channels.Channel
+import kotlinx.coroutines.channels.Channel
 
 /**
  * In order to avoid Garbage collection pressure it is a common practice to pre-allocate objects that are known to be long-living

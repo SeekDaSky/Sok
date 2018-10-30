@@ -1,6 +1,6 @@
 package Sok.Test
 
-import kotlinx.coroutines.experimental.CoroutineScope
+import kotlinx.coroutines.CoroutineScope
 
 /**
  * Workaround to use suspending functions in unit tests

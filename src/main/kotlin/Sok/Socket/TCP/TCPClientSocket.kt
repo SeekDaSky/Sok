@@ -1,7 +1,7 @@
 package Sok.Socket.TCP
 
 import Sok.Buffer.MultiplatformBuffer
-import kotlinx.coroutines.experimental.Deferred
+import kotlinx.coroutines.Deferred
 
 expect class TCPClientSocket{
 

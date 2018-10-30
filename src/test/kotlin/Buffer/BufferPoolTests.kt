@@ -2,7 +2,7 @@ package Buffer
 
 import Sok.Buffer.BufferPool
 import Sok.Test.runTest
-import kotlinx.coroutines.experimental.*
+import kotlinx.coroutines.*
 import Sok.Test.JsName
 import kotlin.test.Test
 import kotlin.test.assertEquals

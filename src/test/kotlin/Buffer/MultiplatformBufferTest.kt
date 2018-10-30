@@ -73,12 +73,12 @@ class MultiplateformBufferTest {
     fun `Buffer get unsigned byte`(){
         val buf = wrapMultiplatformBuffer(listOf<Byte>(255.toByte(),0,254.toByte()).toByteArray())
 
-        //test absolute access
-        assertEquals(254,buf.getUByte(2))
+        //test absolute access (toString because of a bug in Mocha/Node.JS/Kotlinx/JS, don't know)
+        assertEquals(254.toString(),buf.getUByte(2).toString())
         assertEquals(0,buf.cursor)
 
-        //test if relative get works
-        assertEquals(255,buf.getUByte())
+        //test if relative get works (toString because of a bug in Mocha/Node.JS/Kotlinx/JS, don't know)
+        assertEquals(255.toString(),buf.getUByte().toString())
         assertEquals(1,buf.cursor)
 
         //test buffer overflow/underflow exceptions
@@ -102,7 +102,8 @@ class MultiplateformBufferTest {
         buf.cursor = 0
         assertEquals(1,buf.getByte())
         assertEquals(2,buf.getByte())
-        assertEquals(255,buf.getUByte())
+        //(toString because of a bug in Mocha/Node.JS/Kotlinx/JS, don't know)
+        assertEquals(255.toString(),buf.getUByte().toString())
         assertEquals(3,buf.cursor)
 
         //test absolute write
@@ -153,12 +154,12 @@ class MultiplateformBufferTest {
         buf.cursor = 0
 
         //test absolute access
-        assertEquals(65535,buf.getUShort(0))
+        assertEquals(65535.toString(),buf.getUShort(0).toString())
         assertEquals(0,buf.cursor)
 
         //test if relative get works
         buf.cursor = 0
-        assertEquals(65535,buf.getUShort())
+        assertEquals(65535.toString(),buf.getUShort().toString())
         assertEquals(2,buf.cursor)
 
         //test buffer overflow/underflow exceptions

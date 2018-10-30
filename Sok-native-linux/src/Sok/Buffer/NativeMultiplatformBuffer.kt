@@ -43,13 +43,13 @@ class NativeMultiplatformBuffer : MultiplatformBuffer{
         val realIndex = index ?: this.cursor
         val arr = ByteArray(length)
         arr.usePinned{
-            memcpy(it.addressOf(0),this.firstPointer+realIndex,(this.limit-realIndex).signExtend<size_t>())
+            memcpy(it.addressOf(0),this.firstPointer+realIndex,(this.limit-realIndex).toULong())
         }
         return arr
     }
 
-    override fun getUByteImpl(index: Int?): Short {
-        return (this.getByteImpl(index).toShort() and 0xFF)
+    override fun getUByteImpl(index: Int?): UByte {
+        return this.getByteImpl(index).toUByte()
     }
 
     override fun getShortImpl(index: Int?): Short {
@@ -59,8 +59,8 @@ class NativeMultiplatformBuffer : MultiplatformBuffer{
         return v
     }
 
-    override fun getUShortImpl(index: Int?): Int {
-        return (this.getShortImpl(index).toInt() and 0xFFFF)
+    override fun getUShortImpl(index: Int?): UShort {
+        return this.getShortImpl(index).toUShort()
     }
 
     override fun getIntImpl(index: Int?): Int {
@@ -70,8 +70,8 @@ class NativeMultiplatformBuffer : MultiplatformBuffer{
         return v
     }
 
-    override fun getUIntImpl(index: Int?): Long {
-        return (this.getIntImpl(index).toLong() and 0xFFFFFFFF)
+    override fun getUIntImpl(index: Int?): UInt {
+        return this.getIntImpl(index).toUInt()
     }
 
     override fun getLongImpl(index: Int?): Long {
@@ -81,11 +81,15 @@ class NativeMultiplatformBuffer : MultiplatformBuffer{
         return v
     }
 
+    override fun getULongImpl(index: Int?): ULong {
+        return this.getLongImpl(index).toULong()
+    }
+
     override fun putBytesImpl(array: ByteArray, index: Int?) {
         val realIndex = index ?: this.cursor
         array.usePinned {
             val address = it.addressOf(0)
-            memcpy(this.firstPointer + realIndex, address, it.get().size.signExtend<size_t>())
+            memcpy(this.firstPointer + realIndex, address, it.get().size.toULong())
         }
     }
 
@@ -124,7 +128,7 @@ class NativeMultiplatformBuffer : MultiplatformBuffer{
         if(this.destroyed) throw BufferDestroyedException()
         val tmpArr = ByteArray(this.limit)
         tmpArr.usePinned{
-            memcpy(it.addressOf(0),this.firstPointer,this.limit.signExtend<size_t>())
+            memcpy(it.addressOf(0),this.firstPointer,this.limit.toULong())
         }
 
         return tmpArr
@@ -133,7 +137,7 @@ class NativeMultiplatformBuffer : MultiplatformBuffer{
     override fun clone(): MultiplatformBuffer {
         if(this.destroyed) throw BufferDestroyedException()
         val tmp = NativeMultiplatformBuffer(this.capacity)
-        memcpy(tmp.firstPointer,this.firstPointer,this.capacity.signExtend<size_t>())
+        memcpy(tmp.firstPointer,this.firstPointer,this.capacity.toULong())
         tmp.limit = this.limit
         return tmp
     }
@@ -170,9 +174,9 @@ class NativeMultiplatformBuffer : MultiplatformBuffer{
     @Suppress("NOTHING_TO_INLINE")
     private inline fun swap(s: Long): Long = (swap((s and 0xffffffff).toInt()).toLong() shl 32) or (swap((s ushr 32).toInt()).toLong() and 0xffffffff)
     @Suppress("NOTHING_TO_INLINE")
-    private inline fun swap(s: Float): Float = Float.fromBits(swap(s.bits()))
+    private inline fun swap(s: Float): Float = Float.fromBits(swap(s.toRawBits()))
     @Suppress("NOTHING_TO_INLINE")
-    private inline fun swap(s: Double): Double = Double.fromBits(swap(s.bits()))
+    private inline fun swap(s: Double): Double = Double.fromBits(swap(s.toRawBits()))
 
 }
 

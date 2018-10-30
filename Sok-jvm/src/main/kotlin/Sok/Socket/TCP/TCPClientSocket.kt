@@ -7,8 +7,8 @@ import Sok.Selector.SelectorPool
 import Sok.Selector.SuspentionMap
 import kotlinx.atomicfu.AtomicRef
 import kotlinx.atomicfu.atomic
-import kotlinx.coroutines.experimental.*
-import kotlinx.coroutines.experimental.channels.*
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.*
 import java.net.InetSocketAddress
 import java.net.StandardSocketOptions
 import java.nio.channels.SelectionKey

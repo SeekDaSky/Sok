@@ -3,9 +3,11 @@ package Sok.Socket.TCP
 import Sok.Buffer.*
 import Sok.Exceptions.ConnectionRefusedException
 import Sok.Sok.net
-import kotlinx.coroutines.experimental.*
-import kotlinx.coroutines.experimental.channels.Channel
-import kotlin.coroutines.experimental.suspendCoroutine
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
+import kotlin.coroutines.suspendCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlin.math.min
 
 /**
@@ -117,13 +119,16 @@ actual class TCPClientSocket{
      * As nodeJS directly give us a buffer when we read from a socket, we have to copy data from the given buffer into
      * the user buffer.
      */
-    private fun readInto(buffer : JSMultiplatformBuffer) : Boolean{
+    private fun readInto(buffer : JSMultiplatformBuffer) : Int{
         //read from the socket, with a minimum or not
         val internalBuffer : Buffer? = this.socket.read()
 
         if(internalBuffer == null){
-            return false
+            return -1
         }
+
+        //backup cursor
+        val cursor = buffer.cursor
 
         //if we did not unshit data and that the buffer is small enough to fit in the MultiplatformBuffer, swap the backbuffer
         if(internalBuffer.length <= buffer.remaining() && this.indexInStream == 0){
@@ -141,7 +146,7 @@ actual class TCPClientSocket{
             }
         }
 
-        return true
+        return buffer.cursor - cursor
     }
 
     /**
@@ -175,7 +180,7 @@ actual class TCPClientSocket{
         buffer.cursor = 0
         this.registerReadable{
             //read while there is data
-            while (this.readInto(buffer)) {
+            while (this.readInto(buffer) != -1) {
                 total += buffer.cursor
                 val read = buffer.cursor
                 buffer.cursor = 0
@@ -197,15 +202,14 @@ actual class TCPClientSocket{
     actual suspend fun read(buffer: MultiplatformBuffer) : Int{
         if(this.isClosed) return -1
 
-        val cursor = buffer.cursor
-
+        var read = -1
         this.registerReadable {
             (buffer as JSMultiplatformBuffer)
-            this.readInto(buffer)
+            read = this.readInto(buffer)
             false
         }
 
-        return buffer.cursor - cursor
+        return read
     }
 
     actual suspend fun read(buffer: MultiplatformBuffer, minToRead : Int) : Int{
@@ -220,7 +224,8 @@ actual class TCPClientSocket{
             buffer.cursor - cursor < minToRead
         }
 
-        return buffer.cursor - cursor
+        //if we read less than the min, something went wrong
+        return if(buffer.cursor - cursor < minToRead){buffer.cursor - cursor}else{-1}
     }
 
     actual suspend fun write(buffer: MultiplatformBuffer) : Boolean{

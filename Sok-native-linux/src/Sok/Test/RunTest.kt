@@ -1,6 +1,6 @@
 package Sok.Test
 
-import kotlinx.coroutines.experimental.*
+import kotlinx.coroutines.*
 import kotlinx.cinterop.memScoped
 import Sok.Selector.*
 

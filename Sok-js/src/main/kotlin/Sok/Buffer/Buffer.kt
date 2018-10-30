@@ -17,11 +17,11 @@ external class Buffer : Uint8Array{
     }
 
     fun readInt8(offset : Int) : Byte
-    fun readUInt8(offset : Int) : Short
+    fun readUInt8(offset : Int) : Byte
     fun readInt16BE(offset: Int) : Short
-    fun readUInt16BE(offset: Int) : Int
+    fun readUInt16BE(offset: Int) : Short
     fun readInt32BE(offset: Int) : Int
-    fun readUInt32BE(offset: Int) : Long
+    fun readUInt32BE(offset: Int) : Int
 
     fun writeInt8(value : Byte , offset: Int)
     fun writeInt16BE(value : Short, offset: Int)

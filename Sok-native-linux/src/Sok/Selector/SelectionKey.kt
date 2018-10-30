@@ -3,8 +3,7 @@ package Sok.Selector
 import platform.posix.*
 import kotlinx.atomicfu.atomic
 import kotlin.experimental.or
-import kotlin.coroutines.experimental.*
-import konan.worker.ensureNeverFrozen
+import kotlin.coroutines.*
 
 class SelectionKey(val socket : Int,
                    val selector : Selector){
@@ -13,14 +12,10 @@ class SelectionKey(val socket : Int,
 
     private val isClosed = atomic(false)
 
-    @Volatile
     var OP_WRITE : Continuation<Boolean>? = null
-    @Volatile
     var alwaysSelectWrite : SelectAlways? = null
 
-    @Volatile
     var OP_READ : Continuation<Boolean>? = null
-    @Volatile
     var alwaysSelectRead : SelectAlways? = null
 
     fun getPollEvents() : Short{

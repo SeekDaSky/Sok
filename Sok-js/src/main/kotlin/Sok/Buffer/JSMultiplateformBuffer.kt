@@ -29,24 +29,24 @@ class JSMultiplatformBuffer : MultiplatformBuffer{
         return Int8Array(tmpArr.buffer).unsafeCast<ByteArray>()
     }
 
-    override fun getUByteImpl(index: Int?): Short {
-        return this.backBuffer.readUInt8(index ?: this.cursor)
+    override fun getUByteImpl(index: Int?): UByte {
+        return this.backBuffer.readUInt8(index ?: this.cursor).toUByte()
     }
 
     override fun getShortImpl(index: Int?): Short {
         return this.backBuffer.readInt16BE(index ?: this.cursor)
     }
 
-    override fun getUShortImpl(index: Int?): Int {
-        return this.backBuffer.readUInt16BE(index ?: this.cursor)
+    override fun getUShortImpl(index: Int?): UShort {
+        return this.backBuffer.readUInt16BE(index ?: this.cursor).toUShort()
     }
 
     override fun getIntImpl(index: Int?): Int {
         return this.backBuffer.readInt32BE(index ?: this.cursor)
     }
 
-    override fun getUIntImpl(index: Int?): Long {
-        return this.backBuffer.readUInt32BE(index ?: this.cursor)
+    override fun getUIntImpl(index: Int?): UInt {
+        return this.backBuffer.readUInt32BE(index ?: this.cursor).toUInt()
     }
 
     override fun getLongImpl(index: Int?): Long {
@@ -56,6 +56,15 @@ class JSMultiplatformBuffer : MultiplatformBuffer{
 
         //let's assume Kotlin wrap its Longs and bypass the JS limit of 53 bits
         return int2 + (int1.toLong().shl(32))
+    }
+
+    override fun getULongImpl(index: Int?): ULong {
+        //as the native buffer dosen't have a method to retreive Longs, we have to trick with two ints
+        val int1 = this.backBuffer.readInt32BE(index ?: this.cursor)
+        val int2 = this.backBuffer.readInt32BE(index?.plus(4) ?: this.cursor+4)
+
+        //let's assume Kotlin wrap its Longs and bypass the JS limit of 53 bits
+        return (int2 + (int1.toLong().shl(32))).toULong()
     }
 
     override fun putBytesImpl(array: ByteArray, index: Int?) {

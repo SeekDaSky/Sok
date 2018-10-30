@@ -30,28 +30,32 @@ class JVMMultiplatformBuffer : MultiplatformBuffer {
         return array
     }
 
-    override fun getUByteImpl(index: Int?): Short {
-        return (this.backBuffer.get(index ?: this.cursor).toInt() and 0xFF).toShort()
+    override fun getUByteImpl(index: Int?): UByte {
+        return this.backBuffer.get(index ?: this.cursor).toUByte()
     }
 
     override fun getShortImpl(index: Int?): Short {
         return this.backBuffer.getShort(index ?: this.cursor)
     }
 
-    override fun getUShortImpl(index: Int?): Int {
-        return (this.backBuffer.getShort(index ?: this.cursor).toInt() and 0xFFFF)
+    override fun getUShortImpl(index: Int?): UShort {
+        return this.backBuffer.getShort(index ?: this.cursor).toUShort()
     }
 
     override fun getIntImpl(index: Int?): Int {
         return this.backBuffer.getInt(index ?: this.cursor)
     }
 
-    override fun getUIntImpl(index: Int?): Long {
-        return (this.backBuffer.getInt(index ?: this.cursor).toLong() and 0xFFFFFFFF)
+    override fun getUIntImpl(index: Int?): UInt {
+        return this.backBuffer.getInt(index ?: this.cursor).toUInt()
     }
 
     override fun getLongImpl(index: Int?): Long {
         return this.backBuffer.getLong(index ?: this.cursor)
+    }
+
+    override fun getULongImpl(index: Int?): ULong {
+        return this.backBuffer.getLong(index ?: this.cursor).toULong()
     }
 
     override fun putBytesImpl(array: ByteArray, index: Int?) {

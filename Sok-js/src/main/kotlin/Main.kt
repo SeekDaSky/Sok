@@ -5,7 +5,7 @@ import Sok.Buffer.allocMultiplatformBuffer
 import Sok.Socket.TCP.TCPServerSocket
 import Sok.Socket.TCP.createTCPClientSocket
 import Sok.Sok.setTimeout
-import kotlinx.coroutines.experimental.*
+import kotlinx.coroutines.*
 import kotlin.js.Date
 
 val dataSize = 16777216

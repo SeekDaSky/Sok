@@ -2,9 +2,9 @@ package Sok.Selector
 
 import kotlinx.atomicfu.AtomicInt
 import kotlinx.atomicfu.atomic
-import kotlinx.coroutines.experimental.*
-import kotlinx.coroutines.experimental.channels.Channel
-import kotlinx.coroutines.experimental.channels.ClosedReceiveChannelException
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import java.lang.IllegalArgumentException
 import java.nio.channels.CancelledKeyException
 import java.nio.channels.SelectableChannel

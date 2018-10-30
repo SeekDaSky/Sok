@@ -1,12 +1,12 @@
 package Sok.Selector
 
 import kotlinx.atomicfu.atomic
-import kotlinx.coroutines.experimental.*
-import kotlinx.coroutines.experimental.channels.Channel
-import kotlinx.coroutines.experimental.channels.SendChannel
-import kotlinx.coroutines.experimental.channels.actor
-import kotlin.coroutines.experimental.Continuation
-import kotlin.coroutines.experimental.suspendCoroutine
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.SendChannel
+import kotlinx.coroutines.channels.actor
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.suspendCoroutine
 
 /**
  * A SelectorPool will order the Selectors by the number of channels registered. This allow us to do a lightweight load balancing between all the Selectors
