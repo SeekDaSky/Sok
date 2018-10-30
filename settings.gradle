@@ -1,5 +1,17 @@
-rootProject.name = 'Sok'
-
-include 'Sok-jvm', 'Sok-js', 'Sok-native-linux'
-
+rootProject.name = 'sok'
 enableFeaturePreview('GRADLE_METADATA')
+
+def module(String path) {
+    int i = path.lastIndexOf('/')
+    def name = path.substring(i + 1)
+    include(name)
+    project(":$name").projectDir = file(path)
+}
+
+module("common/sok-common")
+
+module("js/sok-js")
+
+module("jvm/sok-jvm")
+
+module("native/sok-native-linux")

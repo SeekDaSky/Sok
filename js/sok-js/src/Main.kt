@@ -14,12 +14,12 @@ val writeSpeedList = mutableListOf<Double>()
 
 fun nomain(args: Array<String>){
 
-    val socket = TCPServerSocket("localhost", 9999)
+    val server = TCPServerSocket("localhost", 9999)
 
     GlobalScope.launch(Dispatchers.Default) {
-        while(!socket.isClosed) {
+        while(!server.isClosed) {
 
-            val socket = socket.accept()
+            val socket = server.accept()
 
             GlobalScope.launch(Dispatchers.Default) {
 
@@ -55,7 +55,7 @@ fun nomain(args: Array<String>){
         }
     }
 
-    socket.bindCloseHandler {
+    server.bindCloseHandler {
 
     }
 

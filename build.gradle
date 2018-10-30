@@ -1,33 +1,77 @@
+/*
+    All the build files are a perfect copy of the ones from kotlinx.coroutines
+ */
+
+
+// Load repositories and build plugins
 buildscript {
+   
     repositories {
         mavenCentral()
+        maven { url "https://kotlin.bintray.com/kotlinx" }
+        maven { url "https://jetbrains.bintray.com/kotlin-native-dependencies" }
+        maven { url "https://plugins.gradle.org/m2/" }
     }
+    
     dependencies {
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+        classpath "org.jetbrains.kotlin:kotlin-native-gradle-plugin:$kotlin_native_version"
+        classpath "org.jetbrains.kotlinx:atomicfu-gradle-plugin:$atomicFU_version"
+        classpath "com.moowork.gradle:gradle-node-plugin:$gradle_node_version"
     }
 }
 
 
-apply plugin: 'maven-publish'
-apply plugin: 'kotlin-platform-common'
-
-repositories {
-    mavenCentral()
+// Make all projects use the same repositories
+allprojects {
+    repositories {
+        mavenCentral()
+	maven { url "https://kotlin.bintray.com/kotlinx" }
+    }
 }
 
-dependencies {
-    compile "org.jetbrains.kotlin:kotlin-stdlib-common:$kotlin_version"
-    compile "org.jetbrains.kotlinx:kotlinx-coroutines-core-common:$coroutine_version"
-    compile "org.jetbrains.kotlinx:atomicfu-common:$atomicFU_version"
-
-    testCompile "org.jetbrains.kotlin:kotlin-test-annotations-common:$kotlin_version"
-    testCompile "org.jetbrains.kotlin:kotlin-test-common:$kotlin_version"
+// Helper function to import correct build files
+static def platformOf(project) {
+    if (project.name.endsWith("-common")) return "common"
+    if (project.name.endsWith("-js")) return "js"
+    if (project.name.contains("-native-")) return "native"
+    return "jvm"
 }
 
+// Apply compile build files to subprojects
+configure(subprojects.findAll()) {
+    def platform = platformOf(it)
+    apply from: rootProject.file("gradle/compile-${platform}.gradle")
+}
 
+// Reconfigure source sets to avoid long "src/main/kotlin"
+configure(subprojects.findAll()) {
+    sourceSets {
+        main.kotlin.srcDirs = ['src']
+        test.kotlin.srcDirs = ['test']
+    }
+}
+
+// Configure atomicFU
+configure(subprojects.findAll()) {
+    def platform = platformOf(it)
+    apply from: rootProject.file("gradle/atomicfu-${platform}.gradle")
+}
+
+// Configure the "expectedBy" statement
+configure(subprojects.findAll()) {
+    def platform = platformOf(it)
+    
+    if(it.name != "sok-common"){
+	dependencies {
+            expectedBy project(':sok-common')
+	}
+    }
+}
+
+// Suppress warnings for experimental features
 configure(subprojects.findAll()) {
 
-    //suppress warnings for experimental features
     tasks.withType(org.jetbrains.kotlin.gradle.tasks.AbstractKotlinCompile).all {
         kotlinOptions.freeCompilerArgs += ["-Xuse-experimental=kotlin.ExperimentalUnsignedTypes",
                                             "-Xuse-experimental=kotlinx.coroutines.ExperimentalCoroutinesApi"]
@@ -35,3 +79,8 @@ configure(subprojects.findAll()) {
     }
 }
 
+// Apply basic plugin
+apply plugin: 'base'
+
+// Configure the "clean" task
+clean.dependsOn gradle.includedBuilds.collect { it.task(':clean') }

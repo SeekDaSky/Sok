@@ -1,0 +1,18 @@
+apply plugin: "kotlin-platform-native"
+
+dependencies {
+
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core-native:$coroutine_version"
+    implementation "org.jetbrains.kotlinx:atomicfu-native:$atomicFU_version"
+
+    compile "org.jetbrains.kotlin:kotlin-stdlib-native:$kotlin_version"
+}
+
+sourceSets {
+    main {
+        component {
+            targets = ["linux_x64"]
+            outputKinds = [KLIBRARY]
+        }
+    }
+}

@@ -1,6 +1,6 @@
 .gradle
 .idea
 build
-gradle
+gradle/wrapper.jar
 test.sh
 Sok.iml

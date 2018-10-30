@@ -1,0 +1,18 @@
+task installDependenciesMochaNode(type: NpmTask, dependsOn: [npmInstall]) {
+    args = ['install',
+            "mocha@$mocha_version",
+            "source-map-support@$source_map_support_version",
+	    "kotlin@$kotlin_version",
+	    "kotlinx-coroutines-core@$coroutine_version",
+	    "kotlinx-atomicfu@$atomicFU_version",
+	    "kotlin-test@$kotlin_version",
+            '--no-save']
+}
+
+// todo: use atomicfu-transformed test files here (not critical)
+task testMochaNode(type: NodeTask, dependsOn: [compileTestKotlin2Js, installDependenciesMochaNode]) {
+    script = file("$node.nodeModulesDir/mocha/bin/mocha")
+    args = ["$node.nodeModulesDir/sok-js_test.js", '--require', 'source-map-support/register', "--timeout", "5000"]
+}
+
+test.dependsOn testMochaNode

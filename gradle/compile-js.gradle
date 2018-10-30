@@ -1,0 +1,23 @@
+apply plugin: 'kotlin-platform-js'
+
+dependencies {
+    compile "org.jetbrains.kotlinx:kotlinx-coroutines-core-js:$coroutine_version"
+    compile "org.jetbrains.kotlin:kotlin-stdlib-js:$kotlin_version"
+    testCompile "org.jetbrains.kotlin:kotlin-test-js:$kotlin_version"
+}
+
+tasks.withType(compileKotlin2Js.getClass()) {
+    kotlinOptions {
+        moduleKind = "umd"
+        sourceMap = true
+        metaInfo = true
+    }
+}
+
+compileKotlin2Js {
+    kotlinOptions {
+        // drop -js suffix from outputFile
+        def baseName = project.name - "-js"
+        outputFile = new File(outputFile.parent, baseName + ".js")
+    }
+}
