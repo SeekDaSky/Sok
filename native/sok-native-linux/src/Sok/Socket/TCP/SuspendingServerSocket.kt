@@ -6,6 +6,7 @@ import kotlinx.atomicfu.atomic
 import kotlinx.cinterop.*
 import platform.posix.*
 import kotlinx.coroutines.*
+import kotlinx.cinterop.cValuesOf
 
 actual class TCPServerSocket{
 
@@ -49,6 +50,9 @@ actual class TCPServerSocket{
                     socket = socket(next.ai_family, next.ai_socktype,next.ai_protocol)
 
                     if(socket == -1) continue
+
+                    //disable ipv6-only
+                    setsockopt (socket, IPPROTO_IPV6, IPV6_V6ONLY, cValuesOf(0), sizeOf<IntVar>().toUInt())
 
                     if (bind(socket, next.ai_addr, next.ai_addrlen) == 0) return@with
 

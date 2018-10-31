@@ -99,16 +99,16 @@ repositories {
 
 dependencies {
     // For common source
-    compile 'seekdasky.sok:sok-common:0.1'
+    compile 'seekdasky.sok:sok-common:0.11'
     
     // For JVM
-    compile 'seekdasky.sok:sok-jvm:0.1'
+    compile 'seekdasky.sok:sok-jvm:0.11'
     
     // For JS
-    compile 'seekdasky.sok:sok-js:0.1'
+    compile 'seekdasky.sok:sok-js:0.11'
     
     // For Native (please not that you must use Gradle 4.7)
-    compile 'seekdasky.sok:sok-native:0.1'
+    compile 'seekdasky.sok:sok-native-linux:0.11'
 }
 ```
 

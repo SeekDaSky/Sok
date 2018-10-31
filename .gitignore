@@ -2,5 +2,4 @@
 .idea
 build
 gradle/wrapper.jar
-test.sh
 Sok.iml

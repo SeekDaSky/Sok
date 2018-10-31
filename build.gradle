@@ -1,5 +1,10 @@
 /*
-    All the build files are a perfect copy of the ones from kotlinx.coroutines
+    The build process for Sok is copied from the kotlinx.coroutines one (https://github.com/Kotlin/kotlinx.coroutines)
+    
+    Each platform have its own compile file named compile-{platform}.gradle in the gradle folder. Additional gradle
+    files are present for the testing on node.js and de deployment on Bintray
+    
+    For some reason the native platform is not correctly uploaded to Bintray and must be uploaded manually
  */
 
 
