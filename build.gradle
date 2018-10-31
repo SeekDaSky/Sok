@@ -18,6 +18,7 @@ buildscript {
         classpath "org.jetbrains.kotlin:kotlin-native-gradle-plugin:$kotlin_native_version"
         classpath "org.jetbrains.kotlinx:atomicfu-gradle-plugin:$atomicFU_version"
         classpath "com.moowork.gradle:gradle-node-plugin:$gradle_node_version"
+        classpath 'com.jfrog.bintray.gradle:gradle-bintray-plugin:1.+'
     }
 }
 
@@ -25,8 +26,9 @@ buildscript {
 // Make all projects use the same repositories
 allprojects {
     repositories {
+        jcenter()
         mavenCentral()
-	maven { url "https://kotlin.bintray.com/kotlinx" }
+	    maven { url "https://kotlin.bintray.com/kotlinx" }
     }
 }
 
@@ -34,7 +36,7 @@ allprojects {
 static def platformOf(project) {
     if (project.name.endsWith("-common")) return "common"
     if (project.name.endsWith("-js")) return "js"
-    if (project.name.contains("-native-")) return "native"
+    if (project.name.endsWith("-linux")) return "linux"
     return "jvm"
 }
 
@@ -52,20 +54,12 @@ configure(subprojects.findAll()) {
     }
 }
 
-// Configure atomicFU
-configure(subprojects.findAll()) {
-    def platform = platformOf(it)
-    apply from: rootProject.file("gradle/atomicfu-${platform}.gradle")
-}
-
 // Configure the "expectedBy" statement
 configure(subprojects.findAll()) {
-    def platform = platformOf(it)
-    
     if(it.name != "sok-common"){
-	dependencies {
-            expectedBy project(':sok-common')
-	}
+        dependencies {
+                expectedBy project(':sok-common')
+        }
     }
 }
 
@@ -84,3 +78,11 @@ apply plugin: 'base'
 
 // Configure the "clean" task
 clean.dependsOn gradle.includedBuilds.collect { it.task(':clean') }
+
+
+configure(subprojects.findAll()) {
+    apply from: rootProject.file('gradle/publish-bintray.gradle')
+}
+
+// main deployment task
+task deploy(dependsOn: getTasksByName("bintrayUpload", true))

@@ -1,12 +1,15 @@
 
 apply plugin: 'kotlin-platform-jvm'
 apply plugin: 'jacoco'
+apply plugin: 'kotlinx-atomicfu'
 
 sourceCompatibility = 1.7
 targetCompatibility = 1.7
 
 dependencies {
     compile "org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutine_version"
+    compileOnly "org.jetbrains.kotlinx:atomicfu:$atomicFU_version"
+    testCompile "org.jetbrains.kotlinx:atomicfu:$atomicFU_version"
 
     compile "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
     testCompile "org.jetbrains.kotlin:kotlin-test:$kotlin_version"

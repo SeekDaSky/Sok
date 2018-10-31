@@ -1,12 +1,14 @@
 apply plugin: "kotlin-platform-native"
 
 dependencies {
-
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core-native:$coroutine_version"
     implementation "org.jetbrains.kotlinx:atomicfu-native:$atomicFU_version"
 
     compile "org.jetbrains.kotlin:kotlin-stdlib-native:$kotlin_version"
 }
+
+group "seekdasky.sok"
+version sok_version
 
 sourceSets {
     main {

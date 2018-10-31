@@ -248,7 +248,7 @@ fun main(args: Array<String>) = runBlocking{
 ​	Sok is not feature complete or stable yet, a lot is to be done and feedback on the API is welcome. The plans for Sok are:
 
 - ~~Migrate everything to Kotlin 1.3~~
-- Publish the library on Binatray
+- ~~Publish the library on Bintray~~
 - Enhance the test suite
 - Think of a real exception model
 - Implement a way to set/get socket options

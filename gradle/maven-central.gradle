@@ -1,0 +1,30 @@
+def pomConfig = {
+    licenses {
+        license {
+            name "MIT License"
+            url "http://www.opensource.org/licenses/mit-license.php"
+            distribution "repo"
+        }
+    }
+    developers {
+        developer {
+            id "seekdasky"
+            name "Mascaro Lucas"
+            email "mascaro.lucas@yahoo.fr"
+        }
+    }
+
+    scm {
+        url "https://git.seekdasky.ovh/SeekDaSKy/Sok"
+    }
+}
+
+project.ext.configureMavenCentralMetadata = {
+    def root = it.asNode()
+    // NOTE: Don't try to move top-level things (especially "description") to the pomConfig block
+    //       because they would resolve incorrectly to top-level project properties in Gradle/Groovy
+    root.appendNode('name', project.name)
+    root.appendNode('description', 'Platform-agnostic and coroutine-friendly kotlin socket library')
+    root.appendNode('url', 'https://git.seekdasky.ovh/SeekDaSKy/Sok')
+    root.children().last() + pomConfig
+}
