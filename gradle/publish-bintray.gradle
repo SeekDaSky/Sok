@@ -42,9 +42,10 @@ bintray {
         licenses = ['MIT']
         name = 'sok'
         repo = 'sok'
-        vcsUrl = 'https://git.seekdasky.ovh/SeekDaSKy/Sok.git'
+        vcsUrl = 'https://github.com/SeekDaSky/Sok.git'
         version {
             name = sok_version
+            vcsTag = sok_version
         }
     }
 }
