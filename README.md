@@ -8,9 +8,11 @@
 
 [II - Overview](#overview)
 
-[III - The Server class](#the-server-class)
+[III - Installation](#installation)
 
-[IV - The Client class](#the-client-class)
+[IV - The Server class](#the-server-class)
+
+[V - The Client class](#the-client-class)
 
 ​	[1 - Read](#read)
 
@@ -18,9 +20,9 @@
 
 ​	[3 - BulkRead](#bulkread)
 
-[V - The Buffer class](#the-buffer-class)
+[VI - The Buffer class](#the-buffer-class)
 
-[VI - Platform specific behaviours](#platform-specific-behaviours)
+[VII - Platform specific behaviours](#platform-specific-behaviours)
 
 ​	[1 - Java](#java)
 
@@ -28,9 +30,9 @@
 
 ​	[3 - JS](#js)
 
-[VII - Plans for the future](#plans-for-the-future)
+[VIII - Plans for the future](#plans-for-the-future)
 
-[VIII - Contributing](#contributing)
+[IX - Contributing](#contributing)
 
 ## Introduction
 
@@ -83,6 +85,34 @@ fun main(args: Array<String>) {
     }
 }
 ```
+
+## Installation
+
+​	Sok is hosted on bintray. Simply add Sok as a dependency and you are good to go
+
+Gradle:
+
+```groovy
+repositories {
+    maven{ url "https://dl.bintray.com/seekdasky/sok" }
+}
+
+dependencies {
+    // For common source
+    compile 'seekdasky.sok:sok-common:0.1'
+    
+    // For JVM
+    compile 'seekdasky.sok:sok-jvm:0.1'
+    
+    // For JS
+    compile 'seekdasky.sok:sok-js:0.1'
+    
+    // For Native (please not that you must use Gradle 4.7)
+    compile 'seekdasky.sok:sok-native:0.1'
+}
+```
+
+​	Sok is not available on jCenter for now. If you use Sok on native project you MUST use Gradle 4.7 because of incompatibilities in the Gadle metadata format between each version.
 
 ## The Server class
 
