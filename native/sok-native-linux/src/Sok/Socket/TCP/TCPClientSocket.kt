@@ -10,6 +10,9 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.*
 import kotlinx.cinterop.*
 import platform.posix.*
+import Sok.Socket.Options.Options
+import Sok.Socket.Options.SocketOption
+import Sok.Exceptions.OptionNotSupportedException
 
 /**
  * Class representing a client socket. You can use it to perform any I/O operation. Keep in mind that this class keep an internal
@@ -336,6 +339,74 @@ actual class TCPClientSocket{
         }
         return channel
     }
+
+    /**
+     * get a socket option and try to convert it to the given type, throw an exception if the option is not of the correct type
+     *
+     * @param name Option to get
+     * @return the socket option
+     */
+    @Suppress("UNCHECKED_CAST")
+    actual fun <T>getOption(name : Options) : SocketOption<T>{
+        return memScoped{
+            when(name){
+                Options.SO_RCVBUF -> {
+                    val value = alloc<IntVar>()
+                    getsockopt (this@TCPClientSocket.selectionKey.socket, SOL_SOCKET, SO_RCVBUF, value.ptr, cValuesOf(sizeOf<IntVar>().toUInt()))
+                    SocketOption(Options.SO_RCVBUF,value.value as T)
+                }
+                Options.SO_SNDBUF -> {
+                    val value = alloc<IntVar>()
+                    getsockopt (this@TCPClientSocket.selectionKey.socket, SOL_SOCKET, SO_SNDBUF, value.ptr, cValuesOf(sizeOf<IntVar>().toUInt()))
+                    SocketOption(Options.SO_RCVBUF,value.value as T)
+                }
+                Options.SO_KEEPALIVE -> {
+                    val value = alloc<IntVar>()
+                    getsockopt (this@TCPClientSocket.selectionKey.socket, SOL_SOCKET, SO_KEEPALIVE, value.ptr, cValuesOf(sizeOf<IntVar>().toUInt()))
+                    SocketOption(Options.SO_RCVBUF,(value.value == 1) as T)
+                }
+                Options.TCP_NODELAY -> {
+                    val value = alloc<IntVar>()
+                    getsockopt (this@TCPClientSocket.selectionKey.socket, SOL_SOCKET, TCP_NODELAY, value.ptr, cValuesOf(sizeOf<IntVar>().toUInt()))
+                    SocketOption(Options.SO_RCVBUF,(value.value == 1) as T)
+                }
+            }
+        }
+    }
+
+    /**
+     * set a socket option
+     *
+     * @param option option to set
+     * @return success of the operation
+     */
+    @Suppress("UNCHECKED_CAST")
+    actual fun <T>setOption(option : SocketOption<T>) : Boolean{
+        return memScoped {
+            when (option.name) {
+                Options.SO_RCVBUF -> {
+                    val value = alloc<IntVar>()
+                    value.value = option.value as Int
+                    setsockopt (this@TCPClientSocket.selectionKey.socket, SOL_SOCKET, SO_RCVBUF, value.ptr, sizeOf<IntVar>().toUInt()) != -1
+                }
+                Options.SO_SNDBUF -> {
+                    val value = alloc<IntVar>()
+                    value.value = option.value as Int
+                    setsockopt (this@TCPClientSocket.selectionKey.socket, SOL_SOCKET, SO_SNDBUF, value.ptr, sizeOf<IntVar>().toUInt()) != -1
+                }
+                Options.SO_KEEPALIVE -> {
+                    val value = alloc<IntVar>()
+                    value.value = if((option.value as Boolean)){1}else{0}
+                    setsockopt (this@TCPClientSocket.selectionKey.socket, SOL_SOCKET, SO_KEEPALIVE, value.ptr, sizeOf<IntVar>().toUInt()) != -1
+                }
+                Options.TCP_NODELAY -> {
+                    val value = alloc<IntVar>()
+                    value.value = if((option.value as Boolean)){1}else{0}
+                    setsockopt (this@TCPClientSocket.selectionKey.socket, SOL_SOCKET, TCP_NODELAY, value.ptr, sizeOf<IntVar>().toUInt()) != -1
+                }
+            }
+        }
+    }
 }
 
 internal class WriteRequest(val data : MultiplatformBuffer, val deferred : CompletableDeferred<Boolean>)
@@ -389,9 +460,6 @@ actual suspend fun createTCPClientSocket(address : String, port : Int ) : TCPCli
             }
             throw ConnectionRefusedException()
         }
-
-        //can't figure out how to convert result to the righ type yet
-        //freeaddrinfo(result.ptr)
 
         val error = alloc<IntVar>()
         val len = alloc<socklen_tVar>()

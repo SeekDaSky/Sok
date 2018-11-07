@@ -1,6 +1,8 @@
 package Sok.Socket.TCP
 
 import Sok.Buffer.MultiplatformBuffer
+import Sok.Socket.Options.Options
+import Sok.Socket.Options.SocketOption
 import kotlinx.coroutines.Deferred
 
 /**
@@ -80,6 +82,32 @@ expect class TCPClientSocket{
      * @return Success of the operation
      */
     suspend fun write(buffer: MultiplatformBuffer) : Boolean
+
+    /**
+     * get a socket option and try to convert it to the given type, throw an exception if the option is not of the correct type
+     * exemple:
+     *
+     * ```kotlin
+     * client.getOption<Int>(Options.SO_RCVBUF)
+     * ```
+     *
+     * @param name Option to get
+     * @return the socket option
+     */
+    fun <T>getOption(name : Options) : SocketOption<T>
+
+    /**
+     * set a socket option
+     * exemple:
+     *
+     * ```kotlin
+     * client.setOption(SocketOption(Options.SO_KEEPALIVE,true))
+     * ```
+     *
+     * @param option option to set
+     * @return success of the operation
+     */
+    fun <T>setOption(option : SocketOption<T>) : Boolean
 
 }
 

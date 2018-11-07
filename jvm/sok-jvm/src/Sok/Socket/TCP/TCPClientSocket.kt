@@ -2,9 +2,12 @@ package Sok.Socket.TCP
 
 import Sok.Buffer.*
 import Sok.Exceptions.ConnectionRefusedException
+import Sok.Exceptions.OptionNotSupportedException
 import Sok.Selector.Selector
 import Sok.Selector.SelectorPool
 import Sok.Selector.SuspentionMap
+import Sok.Socket.Options.Options
+import Sok.Socket.Options.SocketOption
 import kotlinx.atomicfu.AtomicBoolean
 import kotlinx.atomicfu.AtomicRef
 import kotlinx.atomicfu.atomic
@@ -320,6 +323,49 @@ actual class TCPClientSocket {
             }catch (e : Exception){
                 request.deferred.complete(false)
                 onClose()
+            }
+        }
+    }
+    /**
+     * get a socket option and try to convert it to the given type
+     *
+     * @param name Option to get
+     * @return the socket option
+     */
+    @Suppress("UNCHECKED_CAST")
+    actual fun <T>getOption(name : Options) : SocketOption<T> {
+        return when(name){
+            Options.SO_RCVBUF -> SocketOption(Options.SO_RCVBUF,this.channel.getOption(StandardSocketOptions.SO_RCVBUF) as T)
+            Options.SO_SNDBUF -> SocketOption(Options.SO_SNDBUF,this.channel.getOption(StandardSocketOptions.SO_RCVBUF) as T)
+            Options.SO_KEEPALIVE -> SocketOption(Options.SO_KEEPALIVE,this.channel.getOption(StandardSocketOptions.SO_KEEPALIVE) as T)
+            Options.TCP_NODELAY -> SocketOption(Options.TCP_NODELAY,this.channel.getOption(StandardSocketOptions.TCP_NODELAY) as T)
+        }
+    }
+
+    /**
+    * set a socket option
+    *
+    * @param option option to set
+    * @return success of the operation
+    */
+    @Suppress("UNCHECKED_CAST")
+    actual fun <T>setOption(option : SocketOption<T>) : Boolean{
+        return when(option.name){
+            Options.SO_RCVBUF -> {
+                this.channel.setOption(StandardSocketOptions.SO_RCVBUF,option.value as Int)
+                true
+            }
+            Options.SO_SNDBUF -> {
+                this.channel.setOption(StandardSocketOptions.SO_SNDBUF,option.value as Int)
+                true
+            }
+            Options.SO_KEEPALIVE -> {
+                this.channel.setOption(StandardSocketOptions.SO_KEEPALIVE,option.value as Boolean)
+                true
+            }
+            Options.TCP_NODELAY -> {
+                this.channel.setOption(StandardSocketOptions.TCP_NODELAY,option.value as Boolean)
+                true
             }
         }
     }

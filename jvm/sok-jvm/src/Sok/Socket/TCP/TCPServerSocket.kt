@@ -20,12 +20,6 @@ import java.nio.channels.ServerSocketChannel
 actual class TCPServerSocket {
 
     /**
-     * Default TCP_RCVBUF size
-     * TODO: implement the needed methods to have the same behaviour across platforms
-     */
-    private val BUFSIZE = 65536
-
-    /**
      * Lambda called when the socket closes
      */
     @Volatile
@@ -86,7 +80,6 @@ actual class TCPServerSocket {
             this@TCPServerSocket.suspentionMap.selectOnce(SelectionKey.OP_ACCEPT)
             try{
                 val channel = this@TCPServerSocket.channel.accept()
-                channel.setOption(StandardSocketOptions.SO_RCVBUF,BUFSIZE)
                 Sok.Socket.TCP.TCPClientSocket(channel, Selector.defaultSelectorPool)
 
             }catch (e : ClosedChannelException){

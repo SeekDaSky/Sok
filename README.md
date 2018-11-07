@@ -101,16 +101,16 @@ repositories {
 
 dependencies {
     // For common source
-    compile 'seekdasky.sok:sok-common:0.11'
+    compile 'seekdasky.sok:sok-common:0.12'
     
     // For JVM
-    compile 'seekdasky.sok:sok-jvm:0.11'
+    compile 'seekdasky.sok:sok-jvm:0.12'
     
     // For JS
-    compile 'seekdasky.sok:sok-js:0.11'
+    compile 'seekdasky.sok:sok-js:0.12'
     
     // For Native (please not that you must use Gradle 4.7)
-    compile 'seekdasky.sok:sok-native-linux:0.11'
+    compile 'seekdasky.sok:sok-native-linux:0.12'
 }
 ```
 
@@ -283,7 +283,7 @@ fun main(args: Array<String>) = runBlocking{
 - ~~Publish the library on Bintray~~
 - Enhance the test suite
 - Think of a real exception model
-- Implement a way to set/get socket options
+- ~~Implement a way to set/get socket options~~
 - Implement UDP sockets
 - Fix JS performances (though I don't have any idea how)
 

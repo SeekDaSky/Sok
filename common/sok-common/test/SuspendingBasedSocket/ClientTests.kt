@@ -7,6 +7,8 @@ import Sok.Exceptions.ConnectionRefusedException
 import Sok.Socket.TCP.TCPServerSocket
 import Sok.Socket.TCP.createTCPClientSocket
 import Sok.Internal.runTest
+import Sok.Socket.Options.Options
+import Sok.Socket.Options.SocketOption
 import kotlinx.coroutines.*
 import kotlin.js.JsName
 import kotlin.math.min
@@ -272,6 +274,29 @@ class ClientTests {
             fail("exception not raised")
         }catch (e : Exception){
             assertTrue { e is ConnectionRefusedException }
+        }
+    }
+
+    @Test
+    @JsName("ClientCanSetAndGetOptions")
+    fun `Client can set and get options`() = runTest{ scope ->
+        createTCPServer(address,port){server ->
+            val job = scope.launch {
+                server.accept()
+            }
+            val client = createTCPClientSocket("localhost", 9999)
+            job.join()
+
+            // As SO_SNDBUF and SO_RCVBUF are not supported on Node.js, and are hints on other platforms they are quite complicated to test
+            if(client.setOption(SocketOption(Options.SO_KEEPALIVE,true))){
+                assertEquals(true, client.getOption<Boolean>(Options.SO_KEEPALIVE).value)
+            }
+
+            if(client.setOption(SocketOption(Options.TCP_NODELAY,true))){
+                assertEquals(true, client.getOption<Boolean>(Options.TCP_NODELAY).value)
+            }
+
+            client.forceClose()
         }
     }
 }

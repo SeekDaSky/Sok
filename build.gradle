@@ -109,6 +109,7 @@ def makeLinkMapping(dokka, projectDir) {
 dokka {
     outputFormat = 'jekyll'
     includeNonPublic = false
+    includes = ['PACKAGES.md']
     // map for JS, Native, and Common sources
     makeLinkMapping(it, rootProject.file("common/$project.name-common"))
     makeLinkMapping(it, rootProject.file("jvm/$project.name-jvm"))

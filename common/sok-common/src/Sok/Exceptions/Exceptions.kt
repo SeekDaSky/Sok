@@ -27,3 +27,8 @@ class BufferUnderflowException(message : String = "") : Exception(message)
  * @param message Message given by the exception when thrown
  */
 class BufferDestroyedException(message : String = "") : Exception(message)
+
+/**
+ * Exception thrown when trying to get/set a socket option not supported on the platform
+ */
+class OptionNotSupportedException(message: String = "") : Exception(message)

@@ -2,7 +2,10 @@ package Sok.Socket.TCP
 
 import Sok.Buffer.*
 import Sok.Exceptions.ConnectionRefusedException
+import Sok.Exceptions.OptionNotSupportedException
 import Sok.Internal.net
+import Sok.Socket.Options.Options
+import Sok.Socket.Options.SocketOption
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.SendChannel
@@ -47,6 +50,15 @@ actual class TCPClientSocket{
      * Continuation to resume when there is data to read. This continuation must be cancelled when the socket is closed
      */
     private var readingContinuation : CancellableContinuation<Unit>? = null
+
+    /**
+     * Because Node.js does not give us ways to get what option are set on TCP socket (but on UDP socket you can, go figure)
+     * so we do it ourself
+     */
+    private val optionMap = mutableMapOf<Options,Any>(
+            Pair(Options.SO_KEEPALIVE,false),
+            Pair(Options.TCP_NODELAY,true)
+    )
 
     /**
      * Wrap a Node.js socket with Sok Client socket class
@@ -333,6 +345,46 @@ actual class TCPClientSocket{
         }
 
         return channel
+    }
+
+    /**
+     * get a socket option and try to convert it to the given type
+     *
+     * @param name Option to get
+     * @return the socket option
+     */
+    @Suppress("UNCHECKED_CAST")
+    actual fun <T>getOption(name : Options) : SocketOption<T>{
+        return when(name){
+            Options.SO_KEEPALIVE -> SocketOption(Options.SO_KEEPALIVE,this.optionMap[Options.SO_KEEPALIVE] as T)
+            Options.TCP_NODELAY -> SocketOption(Options.TCP_NODELAY,this.optionMap[Options.TCP_NODELAY] as T)
+
+            else -> throw OptionNotSupportedException()
+        }
+    }
+
+    /**
+     * set a socket option
+     *
+     * @param option option to set
+     * @return success of the operation
+     */
+    @Suppress("UNCHECKED_CAST")
+    actual fun <T>setOption(option : SocketOption<T>) : Boolean{
+        return when(option.name){
+            Options.SO_KEEPALIVE -> {
+                this.optionMap[Options.SO_KEEPALIVE] = option.value as Boolean
+                this.socket.setKeepAlive(option.value as Boolean)
+                true
+            }
+            Options.TCP_NODELAY -> {
+                this.optionMap[Options.TCP_NODELAY] = option.value as Boolean
+                this.socket.setNoDelay(option.value as Boolean)
+                true
+            }
+
+            else -> false
+        }
     }
 
 }
