@@ -16,7 +16,7 @@
 
  **Sok is still in its early stage of development, there is still a lot to be done and you will find the [list here](#plans-for-the-future)** 
 
- A complete documentation of the whole librari is available [here](https://seekdasky.github.io/SokDoc/)
+ A complete documentation of the whole library is available [here](https://seekdasky.github.io/SokDoc/)
 
 ## Table of content
 
