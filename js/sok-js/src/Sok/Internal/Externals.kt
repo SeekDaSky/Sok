@@ -1,4 +1,4 @@
-package Sok.Sok
+package Sok.Internal
 
 external fun setTimeout(operation : () -> Unit, time : Int)
 external fun require(module : String) : dynamic

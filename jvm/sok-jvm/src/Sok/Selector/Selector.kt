@@ -11,30 +11,65 @@ import java.nio.channels.Selector
 import java.util.concurrent.Executors
 import kotlin.coroutines.resume
 
+/**
+ * Class wrapping the NIO Selector class for a more "coroutine-friendly" approach. Each `SelectableCHannel` will have a `SuspentionMap` as
+ * attachment, this map contains all teh Continuations/Lambda to resume/call when an event come in.
+ *
+ * Sockets register quite frequently and as the NIO Selector class blocks any registration while selecting we have to implement a way to
+ * synchronize registrations and the Selector class. This is done by sharing the `CoroutineScope` of the Selector to the `SuspentionMap`
+ * classes, this way the `SuspentionMap` is able to launch coroutine on the Selector Thread, thus ensuring mutual-exclusion.
+ *
+ * To reduce the number of registration, a socket may register for a unknown number of event. If so the selector will call a lambda after
+ * each event and this lambda will return if the Selector should keep the registration or not. This method slow down the selector but
+ * the performance gain is worth it.
+ *
+ * @property selector NIO selector
+ * @property numberOfChannel number fo channel registered to this selector, used for load balancing
+ * @property _isClosed Atomic backing field of isClosed
+ * @property isClosed is the Selector still running
+ * @property isInSelection is the selector in selection
+ * @property thread `SingleThreadExecutor` used as a `CoroutineDispatcher` to run the selection/registration operations
+ * @property coroutineScope scope given to the `SuspentionMap` classes to run registration coroutine on the right thread
+ * @property mainLoop main selection loop
+ *
+ * @constructor Initialize a selector and launch its main selection loop
+ */
 class Selector {
 
-    //default Selector
+    /**
+     * Contain the default selector or selector pool used by all the sockets. A `Client` socket will try to use a pool, if no pool
+     * are initialized it will fallback to a single default selector to avoid the allocation of all the selectors/threads of a pool.
+     * A `Server` socket will always use a pool and initialise it if needed
+     */
     companion object {
+        /**
+         * is the selector pool initialized.
+         */
         var isSelectorPoolInit = false
+
+        /**
+         * selector pool
+         */
         val defaultSelectorPool by lazy {
             isSelectorPoolInit = true
             SelectorPool(Runtime.getRuntime().availableProcessors())
         }
 
+        /**
+         * selector
+         */
         val defaultSelector by lazy { Selector() }
     }
 
-    //NIO selector
     private val selector = Selector.open()
 
-    //number of channel the selector is managing
     @Volatile
-    private var numberOfChannel = 0
+    var numberOfChannel = 0
+        private set
 
-    //selector states, the public property is backed by the atomic _isClosed
     private val _isClosed : AtomicRef<Boolean> =  atomic<Boolean>(false)
 
-    var isClosed
+    var isClosed : Boolean
         private set(value){
             this._isClosed.value = value
         }
@@ -42,32 +77,29 @@ class Selector {
 
     @Volatile
     var isInSelection = true
+        private set
 
-    //selection thread and coroutine
     private val thread = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+
     val coroutineScope = CoroutineScope(this.thread)
+
     private val mainLoop : Job
 
-    //rendez-vous channel between the registering actor and the selection loop
-    private val waitChannel = Channel<CompletableDeferred<Boolean>>(0)
-
-    //launch the selection loop and the registering actor
     init{
-            this.mainLoop = this.coroutineScope.launch{
-                loop()
-            }
+        this.mainLoop = this.coroutineScope.launch{
+            loop()
+        }
     }
 
     /**
-     * The main loop is the core of the Selector. It will perform the selection actions, update the interests in case of selection and resume the selecting coroutines
-     * using the SuspentionMap attached to the channel.
+     * The main loop is the core of the Selector. It will perform the selection actions, resume the coroutines or execute the operation lambda then will yield in order
+     * to let possible registration coroutines run before the next selection cycle
      *
      * For performances purposes It is possible to register an interest for an undefined number of selection. In this case the "alwaysSelectXXX" properties of the
-     * SuspentionMap are used. In order to guaranty the atomicity of those types of selection an operation is registered and the selector will wait for this
-     * operation to complete before resuming its loop. Because of that the registered operation NEEDS to be non-suspending and non blocking as well as being not
+     * SuspentionMap are used. In order to guaranty the atomicity of those types of selection an operation is registered and the selector will execute this lambda
+     * synchronously before continuing its loop. Because of that the registered operation NEEDS to be non-suspending and non blocking as well as being not
      * computation-intensive. The operation will return true if the selector need to select again and will return false when the selector need to unregister the
-     * interest and resume the coroutine. This mechanism can lead to a slow down of the Selector loop rate, thus needing an extended SelectorPool.
-     *
+     * interest and resume the coroutine.
      */
     private suspend fun loop(){
         while (!this.isClosed){
@@ -150,10 +182,10 @@ class Selector {
             //clear keys
             this.selector.selectedKeys().clear()
 
-            //update state before iterating through the channel for state coherence purposes
+            //update state before yielding to avoid state incoherence
             this.isInSelection = true
 
-            //yield to let registrations coroutine execute
+            //yield to let registrations coroutine run
             yield()
 
             //update the number of socket registered
@@ -161,32 +193,41 @@ class Selector {
         }
     }
 
+    /**
+     * Wake the NIO selector up, thus making registrations non-blocking
+     */
     fun wakeup(){
         this.selector.wakeup()
     }
 
+    /**
+     * Register a `SelectableChannel` the NIO `Selector` and bind the attachment (`SuspentionMap`)
+     *
+     * @param channel Channel to register
+     * @param interest Initial interest (0)
+     * @param attachment `SuspentionMap` attached to the channel
+     *
+     * @return NIO SelectionKey used by the SuspentionMap for registrations
+     */
     fun register(channel : SelectableChannel, interest : Int, attachment : Any?) : SelectionKey{
+        require(attachment is SuspentionMap)
         return channel.register(this.selector,interest,attachment)
     }
 
+    /**
+     * Close the selector, close all SuspentionMap, cancel the main loop and close the thread
+     */
     fun close(){
         if(this._isClosed.compareAndSet(false,true)){
-            try {
-                this.waitChannel.close()
-            }catch (e : ClosedReceiveChannelException){
-                //meh
+            this.selector.keys().forEach {
+                (it.attachment() as SuspentionMap).close()
             }
+            this.wakeup()
             this.mainLoop.cancel()
             this.thread.close()
         }
     }
 
-    /**
-     * used by the SelectorPool to order them
-     */
-    fun numberOfChannel() : Int{
-        return this.numberOfChannel
-    }
 }
 
-class SelectAlways(val operation : () -> Boolean)
+internal class SelectAlways(val operation : () -> Boolean)

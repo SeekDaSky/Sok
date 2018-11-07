@@ -2,7 +2,7 @@ package Buffer
 
 import Sok.Buffer.allocMultiplatformBuffer
 import Sok.Buffer.wrapMultiplatformBuffer
-import Sok.Test.JsName
+import kotlin.js.JsName
 import kotlin.test.Test
 import kotlin.test.*
 

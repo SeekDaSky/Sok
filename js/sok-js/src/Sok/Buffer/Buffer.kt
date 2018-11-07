@@ -3,10 +3,11 @@ package Sok.Buffer
 import org.khronos.webgl.ArrayBuffer
 import org.khronos.webgl.Uint8Array
 
-external class Buffer : Uint8Array{
+internal external class Buffer : Uint8Array{
 
     companion object {
         fun alloc(size : Int) : Buffer
+        fun allocUnsafe(size : Int) : Buffer
         fun from(arr : Array<Byte>) : Buffer
         fun from(str : String, charset : String) : Buffer
         fun from(buf : ArrayBuffer) : Buffer

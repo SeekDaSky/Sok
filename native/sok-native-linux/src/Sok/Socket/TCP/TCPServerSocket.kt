@@ -8,8 +8,16 @@ import platform.posix.*
 import kotlinx.coroutines.*
 import kotlinx.cinterop.cValuesOf
 
+/**
+ * Class representing a listening socket. You can use it to perform accept() operation only.
+ *
+ * @property isClosed keep track of the socket state
+ */
 actual class TCPServerSocket{
 
+    /**
+     * Atomic field backing the isClosed property
+     */
     private val _isClosed : AtomicBoolean = atomic(false)
     actual var isClosed : Boolean = false
         get() {
@@ -17,10 +25,23 @@ actual class TCPServerSocket{
         }
         private set
 
+    /**
+     * lambda to call when the socket closes
+     */
     private var onClose : () -> Unit = {}
 
+    /**
+     * Selection key managing the socket
+     */
     private val selectionKey : SelectionKey
 
+    /**
+     * Start a listening socket on the given address (or alias) and port
+     *
+     * @param address IP to listen to
+     * @param port port to listen to
+     *
+     */
     actual constructor(address : String, port : Int){
 
         var socket : Int = 0
@@ -79,6 +100,11 @@ actual class TCPServerSocket{
 
     }
 
+    /**
+     * Accept a client socket. The method will suspend until there is a client to accept
+     *
+     * @return accepted socket
+     */
     actual suspend fun accept() : TCPClientSocket {
         //wait for event
         this.selectionKey.select(Interests.OP_READ)
@@ -90,10 +116,18 @@ actual class TCPServerSocket{
 
     }
 
+    /**
+     * handler called when the socket close (expectedly or not)
+     *
+     * @param handler lambda called when the socket is closed
+     */
     actual fun bindCloseHandler(handler : () -> Unit){
         this.onClose = handler
     }
 
+    /**
+     * close the server socket
+     */
     actual fun close() {
         if(this._isClosed.compareAndSet(false,true)){
             close(this.selectionKey.socket)

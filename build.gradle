@@ -24,6 +24,7 @@ buildscript {
         classpath "org.jetbrains.kotlinx:atomicfu-gradle-plugin:$atomicFU_version"
         classpath "com.moowork.gradle:gradle-node-plugin:$gradle_node_version"
         classpath 'com.jfrog.bintray.gradle:gradle-bintray-plugin:1.+'
+        classpath "org.jetbrains.dokka:dokka-gradle-plugin:$dokka_version"
     }
 }
 
@@ -91,3 +92,49 @@ configure(subprojects.findAll()) {
 
 // main deployment task
 task deploy(dependsOn: getTasksByName("bintrayUpload", true))
+
+//dokka
+
+apply plugin: 'org.jetbrains.dokka'
+
+def makeLinkMapping(dokka, projectDir) {
+    dokka.linkMapping {
+        def relPath = rootProject.projectDir.toPath().relativize(projectDir.toPath())
+        dir = "$projectDir/src"
+        url = "https://github.com/SeekDaSky/Sok/tree/master/$relPath/src"
+        suffix = "#L"
+    }
+}
+
+dokka {
+    outputFormat = 'jekyll'
+    includeNonPublic = false
+    // map for JS, Native, and Common sources
+    makeLinkMapping(it, rootProject.file("common/$project.name-common"))
+    makeLinkMapping(it, rootProject.file("jvm/$project.name-jvm"))
+    makeLinkMapping(it, rootProject.file("js/$project.name-js"))
+    makeLinkMapping(it, rootProject.file("native/$project.name-native-linux"))
+    // source roots
+    impliedPlatforms = ['JVM', 'JS', 'Native', 'Common']
+    sourceRoot {
+        path = rootProject.file("common/$project.name-common/src")
+        platforms = ['Common']
+    }
+    sourceRoot {
+        path = rootProject.file("jvm/$project.name-jvm/src")
+        platforms = ['JVM']
+    }
+    sourceRoot {
+        path = rootProject.file("js/$project.name-js/src")
+        platforms = ['JS']
+    }
+    sourceRoot {
+        path = rootProject.file("native/$project.name-native-linux/src")
+        platforms = ['Native']
+    }
+
+    packageOptions {
+        prefix = "Sok.Internal"
+        suppress = true
+    }
+}

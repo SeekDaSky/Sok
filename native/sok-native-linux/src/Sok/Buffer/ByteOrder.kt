@@ -5,7 +5,7 @@ import kotlinx.cinterop.*
 /**
  * Class used to identify the Endianess and know if we need to change it when getting/setting values in a Buffer
  */
-enum class ByteOrder {
+internal enum class ByteOrder {
     BIG_ENDIAN, LITTLE_ENDIAN;
 
     companion object {

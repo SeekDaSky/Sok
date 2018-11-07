@@ -1,9 +1,7 @@
 package Sok.Selector
 
-import kotlinx.atomicfu.AtomicInt
 import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import java.lang.IllegalArgumentException
 import java.nio.channels.CancelledKeyException
@@ -21,6 +19,9 @@ import java.nio.channels.SelectionKey
  * As the registering of an interest for an undefined number of selection is supported, the SuspentionMap
  * also contains those ongoing requests. For details about the mechanism, please look at the Selector class
  * comments.
+ *
+ * @property selector `Selector` managing this suspention map
+ * @property channel NIO channel registered
  */
 internal class SuspentionMap(
         private val selector : Selector,
@@ -149,6 +150,9 @@ internal class SuspentionMap(
         }
     }
 
+    /**
+     * close the suspention map, thus cancelling any registered socket
+     */
     fun close(){
         this.selectionKey.cancel()
 

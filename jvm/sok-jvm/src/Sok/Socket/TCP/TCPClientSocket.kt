@@ -5,6 +5,7 @@ import Sok.Exceptions.ConnectionRefusedException
 import Sok.Selector.Selector
 import Sok.Selector.SelectorPool
 import Sok.Selector.SuspentionMap
+import kotlinx.atomicfu.AtomicBoolean
 import kotlinx.atomicfu.AtomicRef
 import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.*
@@ -15,39 +16,62 @@ import java.nio.channels.SelectionKey
 import java.nio.channels.SocketChannel
 
 /**
- * The actual documentation and comments are located in the common module class
+ * Class representing a client socket. You can use it to perform any I/O operation. Keep in mind that this class keep an internal
+ * queue for write operations thus storing data until written so you should have some kind of backpressure mechanism to prevent
+ * the accumulation of too many data.
+ *
+ * @property isClosed Keep track of the socket status
  */
 actual class TCPClientSocket {
 
-    //socket related data
+    /**
+     * NIO channel
+     */
     private val channel: SocketChannel
 
-    //write/read actors
+    /**
+     * Actor handling write operations
+     */
     private val writeActor: SendChannel<WriteRequest>
 
-    //socket state (I have to force the use of AtomicRef because of a weird bug in AtomicFU)
-    //the public property isClosed is backup by this atomic
-    private val _isClosed : AtomicRef<Boolean> =  atomic<Boolean>(true)
+    /**
+     * Atomic property backing isClosed
+     */
+    private val _isClosed = atomic(true)
 
-    actual var isClosed
+    actual var isClosed : Boolean
         private set(value){
             this._isClosed.value = value
         }
         get() = this._isClosed.value
 
-    // callbacks
+    /**
+     * Lambda called when the socket closes
+     */
     @Volatile
     private var onClose : () -> Unit = {}
 
-    //suspention map
+    /**
+     * Suspention map used by the socket for 
+     */
     private val suspentionMap : SuspentionMap
 
-    //helper constructor
+    /**
+     * Helper contrutor that simply get the less busy selector from the pool then use the "standard" constructor
+     *
+     * @param channel NIO channel
+     * @param selectorPool Selector pool to use
+     */
     constructor(channel : SocketChannel, selectorPool: SelectorPool) : this(channel,runBlocking(Dispatchers.Unconfined){selectorPool.getLessbusySelector()})
 
+    /**
+     * Wrap a NIO channel with a Sok client socket class
+     *
+     * @param channel NIO channel
+     * @param selector Selector used to track the NIO channel
+     */
     constructor(channel : SocketChannel, selector: Selector){
 
-        //store channel and IP (because you can't get remoteIP if channel is closed, it's better to store it directly)
         this.channel = channel
         //configure the socket for NIO use
         channel.configureBlocking(false)
@@ -68,10 +92,19 @@ actual class TCPClientSocket {
 
     }
 
+    /**
+     * handler called when the socket close (expectantly or not)
+     *
+     * @param handler lambda called when the socket is closed
+     */
     actual fun bindCloseHandler(handler : () -> Unit){
         this.onClose = handler
     }
 
+    /**
+     * gracefully stops the socket. The method suspends as it waits for all the writing requests in the channel to be
+     * executed before effectively closing the channel
+     */
     actual suspend fun close(){
         if(this._isClosed.compareAndSet(false,true)){
             /** If some coroutines are launched in the same scope as the server scope
@@ -93,6 +126,9 @@ actual class TCPClientSocket {
         }
     }
 
+    /**
+     * forcefully closes the channel without checking the writing request queue
+     */
     actual fun forceClose(){
         if(this._isClosed.compareAndSet(false,true)){
             this@TCPClientSocket.writeActor.close()
@@ -102,6 +138,23 @@ actual class TCPClientSocket {
         }
     }
 
+    /**
+     * Used to do efficient read-intensive loops, it will basically execute the operation each time there is data to be read
+     * and avoid registrations/allocation between each iteration. The passed lambda must return true to continue the loop or
+     * false to exit. The call will suspend as long as the loop is running.
+     *
+     * THE OPERATION MUST NOT BE COMPUTATION INTENSIVE OR BLOCKING as the internal selector will call it synchronously and wait
+     * for it to return before processing any other event. The buffer cursor will be reset between each iteration so you should
+     * not use it between two iterations and must avoid leaking it to exterior coroutines/threads. each iteration will read
+     * n bytes ( 0 < n <= buffer.limit ) and set the cursor to 0, the read parameter of the operation is the amount of data read.
+     *
+     * @param buffer buffer used to store the data read. the cursor will be reset after each iteration. The limit of the buffer remains
+     * untouched so the developer can chose the amout of data to read.
+     *
+     * @param operation lambda called after each read event. The first argument will be the buffer and the second the amount of data read
+     *
+     * @return Total number of byte read
+     */
     actual suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer, read : Int) -> Boolean) : Long{
         if(this.isClosed){
             return -1
@@ -134,10 +187,19 @@ actual class TCPClientSocket {
         return read
     }
 
+    /**
+     * Perform a suspending read, the method will read n bytes ( 0 < n <= buffer.remaining() ) and update the cursor
+     *
+     * @param buffer buffer used to store the data read
+     *
+     * @return Number of byte read
+     */
     actual suspend fun read(buffer: MultiplatformBuffer) : Int{
         if(this.isClosed){
             return -1
         }
+
+        require(buffer.remaining() > 0)
 
         var read = 0
         withContext(Dispatchers.IO){
@@ -160,6 +222,13 @@ actual class TCPClientSocket {
         return read
     }
 
+    /**
+     * Perform a suspending read, the method will read n bytes ( minToRead < n <= buffer.remaining() ) and update the cursor
+     *
+     * @param buffer buffer used to store the data read
+     *
+     * @return Number of byte read
+     */
     actual suspend fun read(buffer: MultiplatformBuffer, minToRead : Int) : Int{
         require(buffer.remaining() >= minToRead)
         if(this.isClosed){
@@ -190,6 +259,15 @@ actual class TCPClientSocket {
         return read
     }
 
+    /**
+     * Perform a suspending write, the method will not return until all the data between buffer.cursor and buffer.limit are written.
+     * The socket use an internal write queue, allowing multiple threads to concurrently write. Backpressure mechanisms
+     * should be implemented by the developer to avoid having too much data in the queue.
+     *
+     * @param buffer data to write
+     *
+     * @return Success of the operation
+     */
     actual suspend fun write(buffer: MultiplatformBuffer) : Boolean{
         if(this.writeActor.isClosedForSend){
             return false
@@ -248,12 +326,16 @@ actual class TCPClientSocket {
 
 }
 
-class WriteRequest(val data: MultiplatformBuffer, val deferred: CompletableDeferred<Boolean>)
+internal class WriteRequest(val data: MultiplatformBuffer, val deferred: CompletableDeferred<Boolean>)
 
 /**
- * This function will create a client socket with either the default selector pool if it is initialized of with a single default Selector
- * The default SelectorPool is only initialized if a ServerSocket is create at some point, the goal is that a ClientSocket use the minimum
- * number of selector possible
+ * Create a client socket with the given address and port. This function will throw a `ConnectionRefusedException` if the socket
+ * failed to connect.
+ *
+ * @param address IP or domain to connect to
+ * @param port port to connect to
+ *
+ * @return connected socket
  */
 actual suspend fun createTCPClientSocket(address: String, port: Int) : TCPClientSocket {
     val socket = SocketChannel.open()

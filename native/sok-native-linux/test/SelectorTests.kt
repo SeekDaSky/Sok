@@ -1,7 +1,7 @@
 import kotlin.test.*
 
 import Sok.Selector.*
-import Sok.Test.runTest
+import Sok.Internal.runTest
 
 import kotlinx.coroutines.*
 

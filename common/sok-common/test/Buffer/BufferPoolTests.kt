@@ -1,9 +1,9 @@
 package Buffer
 
 import Sok.Buffer.BufferPool
-import Sok.Test.runTest
+import Sok.Internal.runTest
 import kotlinx.coroutines.*
-import Sok.Test.JsName
+import kotlin.js.JsName
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue

@@ -1,4 +1,4 @@
-package Sok.Test
+package Sok.Internal
 
 import kotlinx.coroutines.CoroutineScope
 
