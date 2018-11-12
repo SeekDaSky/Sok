@@ -9,9 +9,6 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.SendChannel
 import org.khronos.webgl.Uint8Array
-import kotlin.contracts.CallsInPlace
-import kotlin.contracts.contract
-import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.suspendCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -62,6 +59,9 @@ actual class TCPClientSocket{
             Pair(Options.TCP_NODELAY,true)
     )
 
+    /**
+     * Exception handler used to catch everything that comes from the internal coroutines
+     */
     private val internalExceptionHandler = CoroutineExceptionHandler{_,e ->
         this.forceClose()
         this.exceptionHandler(e)
@@ -219,6 +219,7 @@ actual class TCPClientSocket{
      */
     actual suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer, read : Int) -> Boolean) : Long{
         if(this.isClosed) throw SocketClosedException()
+        if(buffer.remaining() <= 0) throw BufferOverflowException()
         if(this.readingContinuation != null) throw ConcurrentReadingException()
 
         var total = -1L

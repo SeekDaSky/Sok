@@ -1,5 +1,6 @@
 package Sok.Selector
 
+import Sok.Exceptions.handleException
 import kotlinx.atomicfu.AtomicRef
 import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.*
@@ -113,70 +114,75 @@ class Selector {
             for(it in this.selector.selectedKeys()) {
                 //get the suspention map
                 val suspentionMap = it.attachment() as SuspentionMap
+                //catch any exception to send it back to the exception handler of the Socket
+                try {
+                    /*
+                    The following blocks all have the same pattern thus only the first one will be commented
 
-                /*
-                The following blocks all have the same pattern thus only the first one will be commented
-
-                The SuspentionMap implementation guaranty that the continuation will not be null and we need to unregister the interest BEFORE
-                resuming the coroutine to avoid state incoherence
-                 */
-                if (it.isValid && it.isReadable) {
-                    //check if there is an ongoing unlimited selection request
-                    if(suspentionMap.alwaysSelectRead == null) {
-                        //if not, unregister then resume the coroutine
-                        suspentionMap.unsafeUnregister(SelectionKey.OP_READ)
-                        suspentionMap.OP_READ!!.resume(true)
-                    }else {
-                        val request = suspentionMap.alwaysSelectRead!!
-                        //if the operation returns false, we can unregister
-                        if (!request.operation.invoke()) {
+                    The SuspentionMap implementation guaranty that the continuation will not be null and we need to unregister the interest BEFORE
+                    resuming the coroutine to avoid state incoherence
+                     */
+                    if (it.isValid && it.isReadable) {
+                        //check if there is an ongoing unlimited selection request
+                        if(suspentionMap.alwaysSelectRead == null) {
+                            //if not, unregister then resume the coroutine
                             suspentionMap.unsafeUnregister(SelectionKey.OP_READ)
                             suspentionMap.OP_READ!!.resume(true)
+                        }else {
+                            val request = suspentionMap.alwaysSelectRead!!
+                            //if the operation returns false, we can unregister
+                            if (!request.operation.invoke()) {
+                                suspentionMap.unsafeUnregister(SelectionKey.OP_READ)
+                                suspentionMap.OP_READ!!.resume(true)
+                            }
                         }
                     }
-                }
 
-                if (it.isValid && it.isWritable) {
-                    if(suspentionMap.alwaysSelectWrite == null) {
-                        suspentionMap.unsafeUnregister(SelectionKey.OP_WRITE)
-                        suspentionMap.OP_WRITE!!.resume(true)
-                    }else {
-                        val request = suspentionMap.alwaysSelectWrite!!
-                        if (!request.operation.invoke()) {
-                            //same as a SelectOnce request
+                    if (it.isValid && it.isWritable) {
+                        if(suspentionMap.alwaysSelectWrite == null) {
                             suspentionMap.unsafeUnregister(SelectionKey.OP_WRITE)
                             suspentionMap.OP_WRITE!!.resume(true)
+                        }else {
+                            val request = suspentionMap.alwaysSelectWrite!!
+                            if (!request.operation.invoke()) {
+                                //same as a SelectOnce request
+                                suspentionMap.unsafeUnregister(SelectionKey.OP_WRITE)
+                                suspentionMap.OP_WRITE!!.resume(true)
+                            }
                         }
                     }
-                }
-                if (it.isValid && it.isAcceptable) {
-                    if(suspentionMap.alwaysSelectAccept == null) {
-                        suspentionMap.unsafeUnregister(SelectionKey.OP_ACCEPT)
-                        suspentionMap.OP_ACCEPT!!.resume(true)
-                    }else {
-                        val request = suspentionMap.alwaysSelectAccept!!
-                        if (!request.operation.invoke()) {
-                            //same as a SelectOnce request
+                    if (it.isValid && it.isAcceptable) {
+                        if(suspentionMap.alwaysSelectAccept == null) {
                             suspentionMap.unsafeUnregister(SelectionKey.OP_ACCEPT)
                             suspentionMap.OP_ACCEPT!!.resume(true)
+                        }else {
+                            val request = suspentionMap.alwaysSelectAccept!!
+                            if (!request.operation.invoke()) {
+                                //same as a SelectOnce request
+                                suspentionMap.unsafeUnregister(SelectionKey.OP_ACCEPT)
+                                suspentionMap.OP_ACCEPT!!.resume(true)
+                            }
                         }
                     }
-                }
-                if (it.isValid && it.isConnectable) {
-                    if(suspentionMap.alwaysSelectConnect == null) {
-                        suspentionMap.unsafeUnregister(SelectionKey.OP_CONNECT)
-                        suspentionMap.OP_CONNECT!!.resume(true)
-                    }else {
-                        val request = suspentionMap.alwaysSelectConnect!!
-                        if (!request.operation.invoke()) {
-                            //same as a SelectOnce request
+                    if (it.isValid && it.isConnectable) {
+                        if(suspentionMap.alwaysSelectConnect == null) {
                             suspentionMap.unsafeUnregister(SelectionKey.OP_CONNECT)
                             suspentionMap.OP_CONNECT!!.resume(true)
+                        }else {
+                            val request = suspentionMap.alwaysSelectConnect!!
+                            if (!request.operation.invoke()) {
+                                //same as a SelectOnce request
+                                suspentionMap.unsafeUnregister(SelectionKey.OP_CONNECT)
+                                suspentionMap.OP_CONNECT!!.resume(true)
+                            }
                         }
+                    } else {
+                        continue
                     }
-                } else {
-                    continue
+                }catch (e : Exception){
+                    suspentionMap.exceptionHandler.handleException(e)
                 }
+
             }
 
             //clear keys
@@ -209,9 +215,13 @@ class Selector {
      *
      * @return NIO SelectionKey used by the SuspentionMap for registrations
      */
-    fun register(channel : SelectableChannel, interest : Int, attachment : Any?) : SelectionKey{
+    suspend fun register(channel : SelectableChannel, interest : Int, attachment : Any?) : SelectionKey{
         require(attachment is SuspentionMap)
-        return channel.register(this.selector,interest,attachment)
+        val def = this.coroutineScope.async {
+            channel.register(this@Selector.selector,interest,attachment)
+        }
+        this.selector.wakeup()
+        return def.await()
     }
 
     /**

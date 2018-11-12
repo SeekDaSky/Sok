@@ -47,6 +47,7 @@ expect class TCPClientSocket{
      *
      * @throws SokException
      * @throws SocketClosedException
+     * @throws BufferOverflowException
      * @throws ConcurrentReadingException
 
      *

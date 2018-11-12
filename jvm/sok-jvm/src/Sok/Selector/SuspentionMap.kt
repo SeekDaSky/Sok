@@ -26,7 +26,9 @@ import java.nio.channels.SelectionKey
 internal class SuspentionMap(
         private val selector : Selector,
 
-        private val channel : SelectableChannel
+        private val channel : SelectableChannel,
+
+        internal val exceptionHandler: CoroutineExceptionHandler
 ){
 
     val interest = atomic(0)
@@ -54,16 +56,8 @@ internal class SuspentionMap(
     val selectionKey: SelectionKey
 
     init {
-        val def = this.selector.coroutineScope.async {
+        this.selectionKey = runBlocking(Dispatchers.Unconfined+this.exceptionHandler) {
             this@SuspentionMap.selector.register(this@SuspentionMap.channel,0,this@SuspentionMap)
-        }
-
-        if(this.selector.isInSelection){
-            this@SuspentionMap.selector.wakeup()
-        }
-
-        this.selectionKey = runBlocking(Dispatchers.Unconfined) {
-            def.await()
         }
     }
 
@@ -105,7 +99,7 @@ internal class SuspentionMap(
      */
     private suspend fun suspend(interest: Int){
 
-        val job = this.selector.coroutineScope.launch {
+        val job = this.selector.coroutineScope.launch(this.exceptionHandler) {
             this@SuspentionMap.selectionKey.interestOps(this@SuspentionMap.interest.value)
 
             suspendCancellableCoroutine<Boolean> {

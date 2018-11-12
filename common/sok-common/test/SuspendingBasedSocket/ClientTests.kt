@@ -56,7 +56,6 @@ class ClientTests {
             val buffer = wrapMultiplatformBuffer(data.toByteArray())
             client.write(buffer)
             assertEquals(data.size,buffer.cursor)
-
             job.join()
 
             client.close()
