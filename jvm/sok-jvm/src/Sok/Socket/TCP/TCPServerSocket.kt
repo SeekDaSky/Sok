@@ -1,6 +1,8 @@
 package Sok.Socket.TCP
 
 import Sok.Buffer.BufferPool
+import Sok.Exceptions.NormalCloseException
+import Sok.Exceptions.handleException
 import Sok.Selector.Selector
 import Sok.Selector.SelectorPool
 import Sok.Selector.SuspentionMap
@@ -46,6 +48,16 @@ actual class TCPServerSocket {
      */
     private val suspentionMap : SuspentionMap
 
+    var exceptionHandler : (exception : Throwable) -> Unit = {}
+
+    /**
+     * Exception handler used to catch everything that comes from the internal coroutines
+     */
+    private val internalExceptionHandler = CoroutineExceptionHandler{_,e ->
+        this.close()
+        this.exceptionHandler(e)
+    }
+
     /**
      * Start a listening socket on the given address (or alias) and port
      *
@@ -67,7 +79,7 @@ actual class TCPServerSocket {
             Selector.defaultSelectorPool.getLessbusySelector()
         }
 
-        this.suspentionMap = SuspentionMap(selector,this@TCPServerSocket.channel)
+        this.suspentionMap = SuspentionMap(selector,this@TCPServerSocket.channel,this.internalExceptionHandler)
     }
 
     /**
@@ -76,7 +88,7 @@ actual class TCPServerSocket {
      * @return accepted socket
      */
     actual suspend fun accept() : TCPClientSocket {
-        return withContext(Dispatchers.IO){
+        return withContext(Dispatchers.IO+this.internalExceptionHandler){
             this@TCPServerSocket.suspentionMap.selectOnce(SelectionKey.OP_ACCEPT)
             try{
                 val channel = this@TCPServerSocket.channel.accept()
@@ -109,6 +121,7 @@ actual class TCPServerSocket {
             this.suspentionMap.close()
             this.channel.close()
             this.onClose.invoke()
+            this.internalExceptionHandler.handleException(NormalCloseException())
         }
     }
 }
