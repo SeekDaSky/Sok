@@ -4,6 +4,9 @@ import Sok.Buffer.MultiplatformBuffer
 import Sok.Buffer.allocMultiplatformBuffer
 import Sok.Buffer.wrapMultiplatformBuffer
 import Sok.Exceptions.ConnectionRefusedException
+import Sok.Exceptions.NormalCloseException
+import Sok.Exceptions.SocketClosedException
+import Sok.Exceptions.SokException
 import Sok.Socket.TCP.TCPServerSocket
 import Sok.Socket.TCP.createTCPClientSocket
 import Sok.Internal.runTest
@@ -24,7 +27,7 @@ class ClientTests {
     fun `Client can connect and close`() = runTest{ scope ->
         createTCPServer(address,port){server ->
             val job = scope.launch {
-                server.accept()
+                server.accept().close()
             }
             val client = createTCPClientSocket("localhost", 9999)
             job.join()
@@ -45,6 +48,7 @@ class ClientTests {
                 socket.read(buf)
                 assertEquals(buf.toArray().toList(), data)
                 assertEquals(data.size,buf.cursor)
+                socket.close()
             }
 
             val client = createTCPClientSocket("localhost", 9999)
@@ -71,6 +75,7 @@ class ClientTests {
                 buf.limit = socket.read(buf)
                 assertTrue { data.containsAll(buf.toArray().toList()) }
                 assertEquals(data.size-1,buf.cursor)
+                socket.close()
             }
 
             val client = createTCPClientSocket("localhost", 9999)
@@ -92,24 +97,26 @@ class ClientTests {
         createTCPServer(address,port) { server ->
 
             val job = scope.launch {
-                val buf = allocMultiplatformBuffer(10)
                 val client = server.accept()
+                val buf = allocMultiplatformBuffer(10)
                 client.read(buf, 10)
                 assertTrue { buf.cursor == 10 }
+                client.close()
             }
 
             val client = createTCPClientSocket("localhost", 9999)
 
             //send 15 bytes with a delay between each one, the read should return when we sent 10 bytes, not waiting for the others
-            (1..15).forEach {
-                val tmpBuf = allocMultiplatformBuffer(1)
-                tmpBuf.putByte(it.toByte())
+            val tmpBuf = allocMultiplatformBuffer(1)
+            (1..10).forEach {
+                tmpBuf.cursor = 0
+                tmpBuf.putByte(it.toByte(),0)
                 client.write(tmpBuf)
                 delay(20)
             }
 
-            client.close()
             job.join()
+            client.close()
 
         }
     }
@@ -147,24 +154,24 @@ class ClientTests {
     @JsName("ClientWaitForTheEndOfTheSendQueueBeforeClose")
     fun `Client wait for the end of the send queue before close`() = runTest{ scope ->
         createTCPServer(address,port) { server ->
+            val lastExpectedInt = 1_000
 
             val job = scope.launch {
                 val socket = server.accept()
                 val buffer = allocMultiplatformBuffer(4)
-                while (!socket.isClosed) {
-                    buffer.cursor = 0
-                    socket.read(buffer)
+                socket.bulkRead(buffer){ b,_ ->
+                    b.getInt(0) != lastExpectedInt
                 }
+                socket.close()
             }
 
             val client = createTCPClientSocket("localhost", 9999)
 
             //prepare all the buffers
-            val lastExpectedInt = 1_000
             val buffers = mutableListOf<MultiplatformBuffer>()
             (1..lastExpectedInt).forEach {
                 val buf = allocMultiplatformBuffer(4)
-                buf.putInt(it)
+                buf.putInt(it,0)
                 buffers.add(buf)
             }
 
@@ -191,9 +198,13 @@ class ClientTests {
             val job = scope.launch {
                 val socket = server.accept()
                 val buffer = allocMultiplatformBuffer(4)
-                while (!socket.isClosed) {
-                    buffer.cursor = 0
-                    socket.read(buffer)
+                try {
+                    socket.bulkRead(buffer){ _,_ ->
+                        !socket.isClosed
+                    }
+                }catch (e : SokException){
+                    socket.close()
+                    //as the client does not wait for all write to complete, we should get an exception
                 }
             }
 
@@ -211,7 +222,11 @@ class ClientTests {
             //async send them
             buffers.forEach {
                 scope.launch {
-                    client.write(it)
+                    try {
+                        client.write(it)
+                    }catch (e : SocketClosedException){
+                        //that's normal as the forceClose doesn't wait for write to finish
+                    }
                 }
             }
 
@@ -236,33 +251,14 @@ class ClientTests {
             val client = createTCPClientSocket("localhost", 9999)
 
             var alreadyFired = false
-            client.bindCloseHandler {
+            client.exceptionHandler = { exc ->
+                assertTrue { exc is NormalCloseException }
                 assertFalse { alreadyFired }
                 alreadyFired = true
             }
 
             client.close()
             client.close()
-        }
-    }
-
-    @Test
-    @JsName("ClientReadWriteReturnMinus1WhenSocketClosed")
-    fun `Client read write return -1 when socket closed`() = runTest{ _ ->
-        createTCPServer(address,port) { server ->
-
-            val job = GlobalScope.launch {
-                assertEquals(-1, server.accept().read(allocMultiplatformBuffer(1)))
-            }
-
-            val client = createTCPClientSocket("localhost", 9999)
-            client.close()
-            job.join()
-
-            assertEquals(false, client.write(allocMultiplatformBuffer(1)))
-            assertEquals(-1, client.read(allocMultiplatformBuffer(1)))
-            assertEquals(-1, client.read(allocMultiplatformBuffer(1),1))
-            assertEquals(-1, client.bulkRead(allocMultiplatformBuffer(1)){ _,_ -> false})
         }
     }
 

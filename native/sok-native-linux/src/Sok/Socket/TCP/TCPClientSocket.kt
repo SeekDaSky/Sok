@@ -291,7 +291,6 @@ actual class TCPClientSocket{
             for(request in channel){
 
                 val buffer = request.data as NativeMultiplatformBuffer
-                buffer.cursor = 0
 
                 //fail fast for empty buffers
                 if(buffer.capacity == 0){
