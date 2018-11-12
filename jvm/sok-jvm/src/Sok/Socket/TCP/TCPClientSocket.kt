@@ -287,8 +287,6 @@ actual class TCPClientSocket {
      */
     private fun writeActor(selectorManager: SuspentionMap, channel: SocketChannel, onClose : () -> Unit) = GlobalScope.actor<WriteRequest>(Dispatchers.IO){
         for (request in this.channel){
-
-            request.data.cursor = 0
             try {
                 val buf = (request.data as JVMMultiplatformBuffer).nativeBuffer()
 

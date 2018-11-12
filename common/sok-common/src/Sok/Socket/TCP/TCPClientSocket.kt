@@ -1,8 +1,11 @@
 package Sok.Socket.TCP
 
 import Sok.Buffer.MultiplatformBuffer
+import Sok.Exceptions.*
 import Sok.Socket.Options.Options
 import Sok.Socket.Options.SocketOption
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Deferred
 
 /**
@@ -11,18 +14,15 @@ import kotlinx.coroutines.Deferred
  * the accumulation of too many data.
  *
  * @property isClosed Keep track of the socket status
+ * @property exceptionHandler Lambda that will be called when a fatal exception is thrown within the library, for further information
+ * look at the "Exception model" part of the documentation
  */
 expect class TCPClientSocket{
 
     var isClosed : Boolean
         private set
 
-    /**
-     * handler called when the socket close (expectantly or not)
-     *
-     * @param handler lambda called when the socket is closed
-     */
-    fun bindCloseHandler(handler : () -> Unit)
+    var exceptionHandler : (exception : Throwable) -> Unit
 
     /**
      * gracefully stops the socket. The method suspends as it waits for all the writing requests in the channel to be
@@ -45,6 +45,11 @@ expect class TCPClientSocket{
      * not use it between two iterations and must avoid leaking it to exterior coroutines/threads. each iteration will read
      * n bytes ( 0 < n <= buffer.limit ) and set the cursor to 0, the read parameter of the operation is the amount of data read.
      *
+     * @throws SokException
+     * @throws SocketClosedException
+     * @throws ConcurrentReadingException
+
+     *
      * @param buffer buffer used to store the data read. the cursor will be reset after each iteration. The limit of the buffer remains
      * untouched so the developer can chose the amout of data to read.
      *
@@ -57,6 +62,11 @@ expect class TCPClientSocket{
     /**
      * Perform a suspending read, the method will read n bytes ( 0 < n <= buffer.remaining() ) and update the cursor
      *
+     * @throws SokException
+     * @throws SocketClosedException
+     * @throws BufferOverflowException
+     * @throws ConcurrentReadingException
+     *
      * @param buffer buffer used to store the data read
      *
      * @return Number of byte read
@@ -65,6 +75,11 @@ expect class TCPClientSocket{
 
     /**
      * Perform a suspending read, the method will read n bytes ( minToRead < n <= buffer.remaining() ) and update the cursor
+     *
+     * @throws SokException
+     * @throws SocketClosedException
+     * @throws BufferOverflowException
+     * @throws ConcurrentReadingException
      *
      * @param buffer buffer used to store the data read
      *
@@ -76,6 +91,10 @@ expect class TCPClientSocket{
      * Perform a suspending write, the method will not return until all the data between buffer.cursor and buffer.limit are written.
      * The socket use an internal write queue, allowing multiple threads to concurrently write. Backpressure mechanisms
      * should be implemented by the developer to avoid having too much data in the queue.
+     *
+     * @throws SocketClosedException
+     * @throws BufferUnderflowException
+     * @throws SokException
      *
      * @param buffer data to write
      *
@@ -121,3 +140,10 @@ expect class TCPClientSocket{
  * @return connected socket
  */
 expect suspend fun createTCPClientSocket(address : String, port : Int ) : TCPClientSocket
+
+/**
+ * Sealed class used to communicate with the internal write actor
+ */
+internal sealed class WriteActorRequest(val deferred: CompletableDeferred<Boolean>)
+internal class CloseRequest(deferred: CompletableDeferred<Boolean>) : WriteActorRequest(deferred)
+internal class WriteRequest(val data: MultiplatformBuffer, deferred: CompletableDeferred<Boolean>) : WriteActorRequest(deferred)
