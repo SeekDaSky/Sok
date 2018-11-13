@@ -33,7 +33,7 @@ private val _defaultScope : AtomicRef<CoroutineScope> = atomic(GlobalScope)
  * @property isClosed state of the selector
  * @property isInSelection is the selector in a selection loop
  */
-class Selector private constructor (private val scope : CoroutineScope) {
+class Selector private constructor() {
 
     companion object {
         /**
@@ -41,8 +41,7 @@ class Selector private constructor (private val scope : CoroutineScope) {
          */
         public val defaultSelector : Selector
             get() {
-                _defaultSelector.compareAndSet(null,Selector(_defaultScope.value))
-
+                _defaultSelector.compareAndSet(null,Selector())
                 return _defaultSelector.value!!
             }
 
@@ -99,13 +98,18 @@ class Selector private constructor (private val scope : CoroutineScope) {
 
     private val registeredSockets = mutableListOf<SelectionKey>()
 
-    private val sleepContinuation: AtomicRef<Continuation<Unit>?> = atomic(null)
+    private val sleepContinuation: AtomicRef<CancellableContinuation<Unit>?> = atomic(null)
 
-    private lateinit var loop: Job
+    private val internalExceptionHandler = CoroutineExceptionHandler{_,_ ->
+        this.isStarted.value = false
+        this.start()
+    }
+
+    private var loop: Job? = null
 
     private fun start() {
         if(this.isStarted.compareAndSet(false,true)){
-            this.loop = scope.launch {
+            this.loop = _defaultScope.value.launch(this.internalExceptionHandler) {
                 while (!this@Selector.isClosed) {
 
                     if(this@Selector.registeredSockets.size != 0){
@@ -113,11 +117,10 @@ class Selector private constructor (private val scope : CoroutineScope) {
                         //allow continuations to execute
                         yield()
                     }else{
-                        suspendCoroutine<Unit>{
+                        suspendCancellableCoroutine<Unit>{
                             this@Selector.sleepContinuation.value = it
                         }
                     }
-
                 }
             }
         }
@@ -127,9 +130,12 @@ class Selector private constructor (private val scope : CoroutineScope) {
      * register a socket to the sleector and return the created selection key
      */
     internal fun register(socket: Int): SelectionKey {
+        require(!this.isClosed)
+
         if(this.isStarted.value == false){
             this.start()
         }
+
         val sk = SelectionKey(socket, this)
         this.registeredSockets.add(sk)
         val cont = this.sleepContinuation.getAndSet(null)
@@ -237,7 +243,8 @@ class Selector private constructor (private val scope : CoroutineScope) {
             this.registeredSockets.forEach{
                 it.close()
             }
-            this.loop.join()
+            this.sleepContinuation.value?.cancel()
+            this.loop?.join()
             nativeHeap.free(this.pollArrayStruct)
         }
     }

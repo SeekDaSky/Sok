@@ -129,9 +129,6 @@ internal class SelectionKey(val socket : Int,
      */
     fun close(){
         if(this.isClosed.compareAndSet(false,true)){
-            //close native socket
-            close(this.socket)
-
             //resume all coroutines
             this.OP_WRITE?.resumeWithException(Exception("Socket was closed by an external caller"))
             this.OP_READ?.resumeWithException(Exception("Socket was closed by an external caller"))
@@ -142,6 +139,9 @@ internal class SelectionKey(val socket : Int,
 
             //unregister from the selector
             this.selector.unregister(this)
+
+            //close native socket
+            close(this.socket)
         }
 
     }

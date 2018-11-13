@@ -113,17 +113,16 @@ actual class TCPClientSocket{
      * executed before effectively closing the channel
      */
     actual suspend fun close(){
+        /**
+         * Channels are fair, coroutine dispatching is also fair, but consider the "Client wait for the end of the send queue before close"
+         * test case, the buffers are all written asynchronously, thus launching coroutines but not suspending. In this case the execution will continue
+         * until the close() call, it's only when we do that that we suspend and let all the launched coroutine to be dispatched. We need to
+         * yield() before doing anything else to let the possibly not dispatched coroutine to be so. If you wonder how much time I spent on this
+         * bug, assume that it's a lot
+         */
+        yield()
+
         if(this._isClosed.compareAndSet(false,true)) {
-            /**
-             * Channels are fair, coroutine dispatching is also fair, but consider the "Client wait for the end of the send queue before close"
-             * test case, the buffers are all written asynchronously, thus launching coroutines but not suspending. In this case the execution will continue
-             * until the close() call, it's only when we do that that we suspend and let all the launched coroutine to be dispatched. We need to
-             * yield() before doing anything else to let the possibly not dispatched coroutine to be so. If you wonder how much time I spent on this
-             * bug, assume that it's a lot
-             */
-            yield()
-
-
             val deferred = CompletableDeferred<Boolean>()
             this.writeChannel.send(WriteRequest(allocMultiplatformBuffer(0),deferred))
             this.writeChannel.close()
@@ -467,6 +466,7 @@ actual suspend fun createTCPClientSocket(address : String, port : Int ) : TCPCli
         val retval = getsockopt (socket, SOL_SOCKET, SO_ERROR, error.ptr, len.ptr)
 
         if(retval == -1 || error.value != 0){
+            println("posix error: ${posix_errno()} ; socket option error: ${error.value}")
             throw ConnectionRefusedException()
         }
 

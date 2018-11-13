@@ -75,7 +75,14 @@ actual class TCPServerSocket{
                     //disable ipv6-only
                     setsockopt (socket, IPPROTO_IPV6, IPV6_V6ONLY, cValuesOf(0), sizeOf<IntVar>().toUInt())
 
-                    if (bind(socket, next.ai_addr, next.ai_addrlen) == 0) return@with
+                    //set addr reuse
+                    setsockopt (socket, SOL_SOCKET, SO_REUSEADDR, cValuesOf(1), sizeOf<IntVar>().toUInt())
+
+                    if (bind(socket, next.ai_addr, next.ai_addrlen) == 0){
+                        return@with
+                    }else if (posix_errno() == EADDRINUSE){
+                        throw Exception("Address already in use")
+                    }
 
                     close(socket)
 
@@ -130,7 +137,7 @@ actual class TCPServerSocket{
      */
     actual fun close() {
         if(this._isClosed.compareAndSet(false,true)){
-            close(this.selectionKey.socket)
+            this.selectionKey.close()
             this.onClose.invoke()
         }
     }
