@@ -8,6 +8,7 @@ import kotlinx.cinterop.*
 import kotlin.experimental.and
 import kotlinx.coroutines.*
 import kotlin.coroutines.*
+import Sok.Exceptions.*
 
 /**
  * As Companion objects are frozen by default on K/N, we have to move the actual data
@@ -197,43 +198,44 @@ class Selector private constructor() {
             val struct: pollfd = this.pollArrayStruct[i].reinterpret()
             val sk = this@Selector.registeredSockets[i]
 
-            //println("registered size: ${this.registeredSockets.size} \t\tsocket number: ${struct.fd} \t\tstruct.revents: ${struct.revents}")
-
-            if (struct.revents.and(POLLIN.toShort()) == POLLIN.toShort()) {
-                val cont = sk.OP_READ!!
-                if (sk.alwaysSelectRead == null) {
-                    //if not, unregister then resume the coroutine
-                    sk.unsafeUnregister(Interests.OP_READ)
-                    cont.resume(true)
-                } else {
-                    val request = sk.alwaysSelectRead!!
-                    //if the operation returns false, we can unregister
-                    if (!request.operation.invoke()) {
+            try {
+                if (struct.revents.and(POLLIN.toShort()) == POLLIN.toShort()) {
+                    val cont = sk.OP_READ!!
+                    if (sk.alwaysSelectRead == null) {
+                        //if not, unregister then resume the coroutine
                         sk.unsafeUnregister(Interests.OP_READ)
                         cont.resume(true)
+                    } else {
+                        val request = sk.alwaysSelectRead!!
+                        //if the operation returns false, we can unregister
+                        if (!request.operation.invoke()) {
+                            sk.unsafeUnregister(Interests.OP_READ)
+                            cont.resume(true)
+                        }
                     }
                 }
-            }
 
-            if (struct.revents.and(POLLOUT.toShort()) == POLLOUT.toShort()) {
-                val cont = sk.OP_WRITE!!
-                if (sk.alwaysSelectWrite == null) {
-                    //if not, unregister then resume the coroutine
-                    sk.unsafeUnregister(Interests.OP_WRITE)
-                    cont.resume(true)
-                } else {
-                    val request = sk.alwaysSelectWrite!!
-                    //if the operation returns false, we can unregister
-                    if (!request.operation.invoke()) {
+                if (struct.revents.and(POLLOUT.toShort()) == POLLOUT.toShort()) {
+                    val cont = sk.OP_WRITE!!
+                    if (sk.alwaysSelectWrite == null) {
+                        //if not, unregister then resume the coroutine
                         sk.unsafeUnregister(Interests.OP_WRITE)
                         cont.resume(true)
+                    } else {
+                        val request = sk.alwaysSelectWrite!!
+                        //if the operation returns false, we can unregister
+                        if (!request.operation.invoke()) {
+                            sk.unsafeUnregister(Interests.OP_WRITE)
+                            cont.resume(true)
+                        }
                     }
                 }
-            }
 
-            if (struct.revents.and(POLLHUP.toShort()) == POLLHUP.toShort() ||
-                struct.revents.and(POLLERR.toShort()) == POLLERR.toShort()) {
-                sk.close()
+                if (struct.revents.and(POLLHUP.toShort()) == POLLHUP.toShort() || struct.revents.and(POLLERR.toShort()) == POLLERR.toShort()) {
+                    sk.exceptionHandler.handleException(SokException("Poll called returned POLLHUP or POLLERR"))
+                }
+            }catch(e : Exception){
+                sk.exceptionHandler.handleException(e)
             }
         }
     }

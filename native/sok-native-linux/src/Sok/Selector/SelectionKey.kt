@@ -1,9 +1,11 @@
 package Sok.Selector
 
+import Sok.Exceptions.*
 import platform.posix.*
 import kotlinx.atomicfu.atomic
 import kotlin.experimental.or
 import kotlin.coroutines.*
+import kotlinx.coroutines.*
 
 /**
  * A `SelectionKey` is generated when a socket is registered to a selector. It is used to perform the suspention
@@ -16,7 +18,8 @@ import kotlin.coroutines.*
  * @constructor return a SelectionKey handling the socket
  */
 internal class SelectionKey(val socket : Int,
-                   val selector : Selector){
+                            val selector : Selector,
+                            var exceptionHandler : CoroutineExceptionHandler = CoroutineExceptionHandler{_,_ -> }){
 
     //is a read event registred
     private val readRegistered = atomic(false)
@@ -130,8 +133,8 @@ internal class SelectionKey(val socket : Int,
     fun close(){
         if(this.isClosed.compareAndSet(false,true)){
             //resume all coroutines
-            this.OP_WRITE?.resumeWithException(Exception("Socket was closed by an external caller"))
-            this.OP_READ?.resumeWithException(Exception("Socket was closed by an external caller"))
+            this.OP_WRITE?.resumeWithException(SocketClosedException())
+            this.OP_READ?.resumeWithException(SocketClosedException())
 
             //unregister every interest
             this.unsafeUnregister(Interests.OP_WRITE)

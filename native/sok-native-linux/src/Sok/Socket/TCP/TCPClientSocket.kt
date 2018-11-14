@@ -20,6 +20,8 @@ import Sok.Exceptions.OptionNotSupportedException
  * the accumulation of too many data.
  *
  * @property isClosed Keep track of the socket status
+ * @property exceptionHandler Lambda that will be called when a fatal exception is thrown within the library, for further information
+ * look at the "Exception model" part of the documentation
  */
 actual class TCPClientSocket{
 
@@ -46,6 +48,16 @@ actual class TCPClientSocket{
             this._isClosed.value = value
         }
 
+    actual var exceptionHandler : (exception : Throwable) -> Unit = {}
+
+    /**
+     * Exception handler used to catch everything that comes from the internal coroutines
+     */
+    private val internalExceptionHandler = CoroutineExceptionHandler{_,e ->
+        this.forceClose()
+        this.exceptionHandler(e)
+    }
+
     /**
      * Selection key of the socket
      */
@@ -54,7 +66,7 @@ actual class TCPClientSocket{
     /**
      * Actor managing the write operations
      */
-    private val writeChannel : Channel<WriteRequest>
+    private val writeActor : SendChannel<WriteActorRequest>
 
     /**
      * Construtor used by the Server socket to build the client socket
@@ -64,11 +76,8 @@ actual class TCPClientSocket{
      */
     constructor(socket : Int,selector : Selector){
         this.selectionKey = selector.register(socket)
-        this.writeChannel = this.createWriteActor(this.selectionKey, this.getSendBufferSize()){
-            GlobalScope.launch{
-                this@TCPClientSocket.close()
-            }
-        }
+        this.selectionKey.exceptionHandler = this.internalExceptionHandler
+        this.writeActor = this.createWriteActor(this.selectionKey, this.getOption<Int>(Options.SO_SNDBUF).value)
     }
 
     /**
@@ -79,33 +88,8 @@ actual class TCPClientSocket{
      */
     internal constructor(selectionKey : SelectionKey){
         this.selectionKey = selectionKey
-        this.writeChannel = this.createWriteActor(this.selectionKey, this.getSendBufferSize()){
-            GlobalScope.launch{
-                this@TCPClientSocket.close()
-            }
-        }
-    }
-
-    /**
-     * TODO: replace this by a proper way to get/set socket options
-     */
-    private fun getSendBufferSize() : Int{
-        return memScoped{
-            val size = alloc<IntVar>()
-            val len = alloc<socklen_tVar>()
-            len.value = sizeOf<IntVar>().toUInt()
-            getsockopt(this@TCPClientSocket.selectionKey.socket, SOL_SOCKET, SO_SNDBUF, size.ptr, len.ptr)
-            size.value
-        }
-    }
-
-    /**
-     * handler called when the socket close (expectantly or not)
-     *
-     * @param handler lambda called when the socket is closed
-     */
-    actual fun bindCloseHandler(handler : () -> Unit){
-        this.closeHandler.value = handler
+        this.selectionKey.exceptionHandler = this.internalExceptionHandler
+        this.writeActor = this.createWriteActor(this.selectionKey, this.getOption<Int>(Options.SO_SNDBUF).value)
     }
 
     /**
@@ -124,11 +108,10 @@ actual class TCPClientSocket{
 
         if(this._isClosed.compareAndSet(false,true)) {
             val deferred = CompletableDeferred<Boolean>()
-            this.writeChannel.send(WriteRequest(allocMultiplatformBuffer(0),deferred))
-            this.writeChannel.close()
+            this.writeActor.send(CloseRequest(deferred))
+            this.writeActor.close()
             deferred.await()
             this.selectionKey.close()
-            this.closeHandler.value()
         }
     }
 
@@ -137,9 +120,9 @@ actual class TCPClientSocket{
      */
     actual fun forceClose(){
         if(this._isClosed.compareAndSet(false,true)){
-            this.writeChannel.cancel()
+            this.writeActor.close()
             this.selectionKey.close()
-            this.closeHandler.value()
+            this.internalExceptionHandler.handleException(ForceCloseException())
         }
     }
 
@@ -161,10 +144,9 @@ actual class TCPClientSocket{
      * @return Total number of byte read
      */
     actual suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer, read : Int) -> Boolean) : Long {
-        if(this.isClosed) return -1
-
-        require(!this.isReading.value)
-        this.isReading.value = true
+        if(this.isClosed) throw SocketClosedException()
+        if(buffer.remaining() <= 0) throw BufferOverflowException()
+        if(!this.isReading.compareAndSet(false,true)) throw ConcurrentReadingException()
 
         buffer as NativeMultiplatformBuffer
         var read : Long = 0
@@ -174,7 +156,7 @@ actual class TCPClientSocket{
 
             if(result == -1 || result == 0){
                 read = -1
-                false
+                throw SokException("Read call failed")
             }else{
                 read += result
                 buffer.cursor = 0
@@ -198,12 +180,9 @@ actual class TCPClientSocket{
      * @return Number of byte read
      */
     actual suspend fun read(buffer: MultiplatformBuffer) : Int {
-        if(this.isClosed) return -1
-
-        require(buffer.remaining() > 0)
-
-        require(!this.isReading.value)
-        this.isReading.value = true
+        if(this.isClosed) throw SocketClosedException()
+        if(buffer.remaining() <= 0) throw BufferOverflowException()
+        if(!this.isReading.compareAndSet(false,true)) throw ConcurrentReadingException()
 
         this.selectionKey.select(Interests.OP_READ)
 
@@ -231,13 +210,10 @@ actual class TCPClientSocket{
      * @return Number of byte read
      */
     actual suspend fun read(buffer: MultiplatformBuffer, minToRead : Int) : Int {
-        if(this.isClosed) return -1
-
-        require(buffer.remaining() >= minToRead)
-
-        require(!this.isReading.value)
-        this.isReading.value = true
-
+        if(this.isClosed) throw SocketClosedException()
+        if(buffer.remaining() < minToRead) throw BufferOverflowException()
+        if(!this.isReading.compareAndSet(false,true)) throw ConcurrentReadingException()
+        
         buffer as NativeMultiplatformBuffer
 
         var read = 0
@@ -275,56 +251,55 @@ actual class TCPClientSocket{
      * @return Success of the operation
      */
     actual suspend fun write(buffer: MultiplatformBuffer) : Boolean {
-        if(this.isClosed) return false
+        if(this.isClosed || this.writeActor.isClosedForSend) throw SocketClosedException()
+        if(buffer.remaining() == 0) throw BufferUnderflowException()
 
         val deferred = CompletableDeferred<Boolean>()
-        this.writeChannel.send(WriteRequest(buffer,deferred))
+        this.writeActor.send(WriteRequest(buffer,deferred))
         return deferred.await()
     }
 
     /**
      * Create the actor managing write oeprations
      */
-    private fun createWriteActor(selectionKey: SelectionKey, sendBufferSize : Int, onError: () -> Unit) : Channel<WriteRequest> {
-        val channel = Channel<WriteRequest>()
-        GlobalScope.launch{
+    private fun createWriteActor(selectionKey: SelectionKey, sendBufferSize : Int) : SendChannel<WriteActorRequest> {
+        val channel = Channel<WriteActorRequest>()
+        GlobalScope.launch(this.internalExceptionHandler){
             for(request in channel){
 
-                val buffer = request.data as NativeMultiplatformBuffer
-
-                //fail fast for empty buffers
-                if(buffer.capacity == 0){
+                if(request is CloseRequest){
                     request.deferred.complete(true)
-                    continue
+                    throw NormalCloseException()
                 }
+
+                request as WriteRequest
+                val buffer = request.data as NativeMultiplatformBuffer
 
                 if(buffer.limit > sendBufferSize){
                     selectionKey.selectAlways(Interests.OP_WRITE){
                         val result = write(selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().toULong()).toInt()
 
                         if(result == -1){
-                            request.deferred.complete(false)
-                            false
+                            val exc = SokException()
+                            request.deferred.completeExceptionally(exc)
+                            //we can throw exceptions here as the Selector send exceptions back to us
+                            throw exc
                         }else{
-                            buffer.cursor = buffer.cursor+result
-                            buffer.remaining() > 0
+                            buffer.cursor += result
+                            buffer.hasRemaining()
                         }
                     }
-
-                    if(!request.deferred.isCompleted){
-                        request.deferred.complete(true)
-                    }else{
-                        onError()
-                    }
+                    request.deferred.complete(true)
                 }else{
                     while (buffer.remaining() > 0){
 
                         val result = write(selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().toULong()).toInt()
 
                         if(result == -1){
-                            request.deferred.complete(false)
-                            onError()
-                            continue
+                            val exc = SokException()
+                            request.deferred.completeExceptionally(exc)
+                            //we can throw exceptions here as the Selector send exceptions back to us
+                            throw exc
                         }
 
                         buffer.cursor = buffer.cursor + result
@@ -407,8 +382,6 @@ actual class TCPClientSocket{
     }
 }
 
-internal class WriteRequest(val data : MultiplatformBuffer, val deferred : CompletableDeferred<Boolean>)
-
 /**
  * Create a client socket with the given address and port. This function will throw a `ConnectionRefusedException` if the socket
  * failed to connect.
@@ -459,22 +432,21 @@ actual suspend fun createTCPClientSocket(address : String, port : Int ) : TCPCli
             throw ConnectionRefusedException()
         }
 
+
         val error = alloc<IntVar>()
         val len = alloc<socklen_tVar>()
         len.value = sizeOf<IntVar>().toUInt()
         val retval = getsockopt (socket, SOL_SOCKET, SO_ERROR, error.ptr, len.ptr)
 
         if(retval == -1 || error.value != 0){
-            println("posix error: ${posix_errno()} ; socket option error: ${error.value}")
             throw ConnectionRefusedException()
         }
 
     }
 
-
     //register socket and wait for it to be ready
     val selectionKey = Selector.defaultSelector.register(socket)
     selectionKey.select(Interests.OP_WRITE)
 
-    return TCPClientSocket(selectionKey)
+    return TCPClientSocket(socket,Selector.defaultSelector)
 }

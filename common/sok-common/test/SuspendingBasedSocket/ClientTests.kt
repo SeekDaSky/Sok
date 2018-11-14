@@ -27,9 +27,10 @@ class ClientTests {
     fun `Client can connect and close`() = runTest{ scope ->
         createTCPServer(address,port){server ->
             val job = scope.launch {
-                server.accept().close()
+                val client = server.accept()
+                client.close()
             }
-            val client = createTCPClientSocket("localhost", 9999)
+            val client = createTCPClientSocket(address, port)
             job.join()
             client.close()
         }
@@ -51,7 +52,7 @@ class ClientTests {
                 socket.close()
             }
 
-            val client = createTCPClientSocket("localhost", 9999)
+            val client = createTCPClientSocket(address, port)
 
             val buffer = wrapMultiplatformBuffer(data.toByteArray())
             client.write(buffer)
@@ -77,7 +78,7 @@ class ClientTests {
                 socket.close()
             }
 
-            val client = createTCPClientSocket("localhost", 9999)
+            val client = createTCPClientSocket(address, port)
 
             val buffer = wrapMultiplatformBuffer(data.toByteArray())
             buffer.limit--
@@ -103,7 +104,7 @@ class ClientTests {
                 client.close()
             }
 
-            val client = createTCPClientSocket("localhost", 9999)
+            val client = createTCPClientSocket(address, port)
 
             //send 15 bytes with a delay between each one, the read should return when we sent 10 bytes, not waiting for the others
             val tmpBuf = allocMultiplatformBuffer(1)
@@ -134,9 +135,10 @@ class ClientTests {
                 //when a buffer is too large the library will internaly use bulk write
                 val client = server.accept()
                 client.write(wrapMultiplatformBuffer(data))
+                client.close()
             }
 
-            val client = createTCPClientSocket("localhost", 9999)
+            val client = createTCPClientSocket(address, port)
 
             var received = 0
             client.bulkRead(allocMultiplatformBuffer(65_536)) { buffer, read ->
@@ -164,7 +166,7 @@ class ClientTests {
                 socket.close()
             }
 
-            val client = createTCPClientSocket("localhost", 9999)
+            val client = createTCPClientSocket(address, port)
 
             //prepare all the buffers
             val buffers = mutableListOf<MultiplatformBuffer>()
@@ -207,7 +209,7 @@ class ClientTests {
                 }
             }
 
-            val client = createTCPClientSocket("localhost", 9999)
+            val client = createTCPClientSocket(address, port)
 
             //prepare all the buffers
             val lastExpectedInt = 1_000
@@ -247,7 +249,7 @@ class ClientTests {
     fun `Client close event is fired once`() = runTest{ _ ->
         createTCPServer(address,port) { _ ->
 
-            val client = createTCPClientSocket("localhost", 9999)
+            val client = createTCPClientSocket(address, port)
 
             var alreadyFired = false
             client.exceptionHandler = { exc ->
@@ -265,7 +267,7 @@ class ClientTests {
     @JsName("ClientThrowExceptionIfConnectionRefused")
     fun `Client throw exception if connection refused`() = runTest { _ ->
         try {
-            createTCPClientSocket("localhost", 9999)
+            createTCPClientSocket(address, port)
             fail("exception not raised")
         }catch (e : Exception){
             assertTrue { e is ConnectionRefusedException }
@@ -279,7 +281,7 @@ class ClientTests {
             val job = scope.launch {
                 server.accept()
             }
-            val client = createTCPClientSocket("localhost", 9999)
+            val client = createTCPClientSocket(address, port)
             job.join()
 
             // As SO_SNDBUF and SO_RCVBUF are not supported on Node.js, and are hints on other platforms they are quite complicated to test

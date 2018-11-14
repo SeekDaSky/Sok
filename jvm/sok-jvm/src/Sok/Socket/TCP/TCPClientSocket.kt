@@ -7,8 +7,6 @@ import Sok.Selector.SelectorPool
 import Sok.Selector.SuspentionMap
 import Sok.Socket.Options.Options
 import Sok.Socket.Options.SocketOption
-import kotlinx.atomicfu.AtomicBoolean
-import kotlinx.atomicfu.AtomicRef
 import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.*
