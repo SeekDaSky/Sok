@@ -1,6 +1,6 @@
 # Sok
 
- ![](https://img.shields.io/badge/Kotlin-JVM-green.svg) ![](https://img.shields.io/badge/Kotlin-JS-green.svg)  ![](https://img.shields.io/badge/Kotlin-Native-green.svg)
+ ![](https://img.shields.io/badge/Kotlin-JVM-green.svg) ![](https://img.shields.io/badge/Kotlin-JS-green.svg)  ![](https://img.shields.io/badge/Kotlin-Native-green.svg) [![Build Status](https://travis-ci.com/SeekDaSky/Sok.svg?branch=master)](https://travis-ci.com/SeekDaSky/Sok)
 
 ## Introduction
 
