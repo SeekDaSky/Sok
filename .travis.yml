@@ -1,13 +1,10 @@
 language: java
 
-#needed for jdk 7
-sudo: required
-dist: precise
-
 jdk:
-  - oraclejdk7
   - oraclejdk8
   - oraclejdk9
+  
+sudo: false
 
 install: true
 
