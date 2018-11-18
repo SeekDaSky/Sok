@@ -1,9 +1,8 @@
-package SuspendingBasedSocket
+package TCPSockets
 
 import Sok.Buffer.MultiplatformBuffer
 import Sok.Buffer.allocMultiplatformBuffer
 import Sok.Buffer.wrapMultiplatformBuffer
-import Sok.Exceptions.ConnectionRefusedException
 import Sok.Exceptions.NormalCloseException
 import Sok.Exceptions.SocketClosedException
 import Sok.Exceptions.SokException
@@ -177,17 +176,19 @@ class ClientTests {
             }
 
             //async send them
-            var lastDeferred: Deferred<Boolean> = CompletableDeferred(false)
             buffers.forEach {
-                lastDeferred = scope.async {
+                scope.async {
                     client.write(it)
                 }
             }
 
             //close the client while the queue is not empty
             client.close()
-            assertTrue { lastDeferred.isCompleted }
-            job.join()
+
+            //wait for the server to read everything
+            withTimeout(500){
+                job.join()
+            }
         }
     }
 
@@ -260,17 +261,6 @@ class ClientTests {
 
             client.close()
             client.close()
-        }
-    }
-
-    @Test
-    @JsName("ClientThrowExceptionIfConnectionRefused")
-    fun `Client throw exception if connection refused`() = runTest { _ ->
-        try {
-            createTCPClientSocket(address, port)
-            fail("exception not raised")
-        }catch (e : Exception){
-            assertTrue { e is ConnectionRefusedException }
         }
     }
 

@@ -17,13 +17,50 @@ dependencies {
     testCompile "junit:junit:$junit_version"
 }
 
-// Configure logging for tests
+// Configure logging for tests (and improve the console output, basic gradle test output is ugly as hell)
+def starttime = 0L
+def endtime = 0L
+def nbrOfTest = 0
 tasks.withType(Test) {
+    //always run tests
+    outputs.upToDateWhen { false }
+
+    //Improve output
+    def currentSuite = ""
+    beforeTest { descriptor ->
+        if(descriptor.getClassName() != currentSuite){
+            currentSuite = descriptor.getClassName()
+            logger.lifecycle("\nTesting: "+descriptor.getClassName())
+        }
+    }
+
+    afterTest{ descriptor, result ->
+        nbrOfTest++
+        endtime = result.getEndTime()
+        if(starttime == 0L){
+            starttime = result.getStartTime()
+        }
+
+        def statusChar = ""
+        switch (result.getResultType()){
+            case TestResult.ResultType.SUCCESS : statusChar = "✓" ; break
+            case TestResult.ResultType.FAILURE : statusChar = "✘" ; break
+            case TestResult.ResultType.SKIPPED : statusChar = "~" ; break
+        }
+
+        logger.lifecycle("\t"+descriptor.getName()+" "+statusChar+" ("+(result.getEndTime()-result.getStartTime())+"ms)")
+    }
+
+    //let gradle handle the exception logging
     testLogging {
-        showStandardStreams = true
-        events "passed", "failed"
+        showStandardStreams true
+        exceptionFormat 'full'
     }
 }
 
-// Run jacoco after tests
-test.finalizedBy(jacocoTestReport)
+test.doLast {
+    logger.lifecycle("\n\n\t\t\t ~~~~ $nbrOfTest test executed in "+(endtime-starttime)+"ms ~~~~\n")
+}
+
+// Run jacoco after tests (disable because jacoco do not play nicely with kotlin yet)
+//test.finalizedBy(jacocoTestReport)
