@@ -48,7 +48,7 @@ tasks.withType(Test) {
             case TestResult.ResultType.SKIPPED : statusChar = "~" ; break
         }
 
-        logger.lifecycle("\t"+descriptor.getName()+" "+statusChar+" ("+(result.getEndTime()-result.getStartTime())+"ms)")
+        logger.lifecycle("\t$statusChar "+descriptor.getName()+" ("+(result.getEndTime()-result.getStartTime())+"ms)")
     }
 
     //let gradle handle the exception logging
