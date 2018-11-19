@@ -53,11 +53,15 @@ actual class TCPClientSocket {
      * Exception handler used to catch everything that comes from the internal coroutines
      */
     private val internalExceptionHandler = CoroutineExceptionHandler{_,e ->
-        this.forceClose()
+        //dispatch close exception once and ignore the others
+        if(e is CloseException && !this.closeExceptionSent.compareAndSet(false,true)) return@CoroutineExceptionHandler
+
         this.exceptionHandler(e)
+        this.forceClose()
     }
 
     private val coroutineScope = CoroutineScope(Dispatchers.IO+this.internalExceptionHandler)
+    private val closeExceptionSent = atomic(false)
 
     /**
      * Suspention map used by the socket for 
@@ -115,7 +119,7 @@ actual class TCPClientSocket {
             this.writeActor.close()
             deferred.await()
 
-            this.suspentionMap.close()
+            this.suspentionMap.close(NormalCloseException())
             this.channel.close()
         }
     }
@@ -125,10 +129,10 @@ actual class TCPClientSocket {
      */
     actual fun forceClose(){
         if(this._isClosed.compareAndSet(false,true)){
-            this@TCPClientSocket.writeActor.close()
-            this.suspentionMap.close()
-            this.channel.close()
             this.internalExceptionHandler.handleException(ForceCloseException())
+            this@TCPClientSocket.writeActor.close()
+            this.suspentionMap.close(ForceCloseException())
+            this.channel.close()
         }
     }
 
@@ -163,6 +167,8 @@ actual class TCPClientSocket {
         (buffer as JVMMultiplatformBuffer)
         var read : Long = 0
 
+        var exceptionFromOperation : Throwable? = null
+
         this.suspentionMap.selectAlways(SelectionKey.OP_READ){
             buffer.cursor = 0
 
@@ -172,16 +178,21 @@ actual class TCPClientSocket {
 
                 buffer.cursor = 0
 
-                //let the operation registered by the user tell if we need another selection
-                operation.invoke(buffer,tmpRead)
+                //let the operation registered by the user tell if we need another selection, if the operation throws we pass it to the caller
+                //but don't make it go back to the socket exceptionHandler as it does not affect the state of the socket
+                try {
+                    operation.invoke(buffer,tmpRead)
+                }catch (e : Exception){
+                    exceptionFromOperation = e
+                    false
+                }
             }else{
-                read = -1
-                false
+                throw PeerClosedException()
             }
         }
 
-        if(read == -1.toLong()){
-            this.close()
+        if(exceptionFromOperation != null){
+            throw exceptionFromOperation!!
         }
 
         return read
@@ -204,25 +215,21 @@ actual class TCPClientSocket {
         if(buffer.remaining() <= 0) throw BufferOverflowException()
         if(this.suspentionMap.OP_READ != null) throw ConcurrentReadingException()
 
-        var read = 0
-        withContext(Dispatchers.IO){
+        return withContext(Dispatchers.IO+this.internalExceptionHandler){
             //wait for the selector to detect data then read
             this@TCPClientSocket.suspentionMap.selectOnce(SelectionKey.OP_READ)
 
             (buffer as JVMMultiplatformBuffer)
-            read = channel.read(buffer.nativeBuffer())
+            val read = channel.read(buffer.nativeBuffer())
 
             if(read > 0){
                 buffer.cursor += read
+                return@withContext read
+            }else{
+                throw PeerClosedException()
             }
         }
 
-
-        //if the channel returns -1 it means that the channel has been closed
-        if(read == -1){
-            this.close()
-        }
-        return read
     }
 
     /**
@@ -245,6 +252,7 @@ actual class TCPClientSocket {
         (buffer as JVMMultiplatformBuffer)
         var read = 0
 
+
         this.suspentionMap.selectAlways(SelectionKey.OP_READ){
 
             val tmpRead = this.channel.read(buffer.nativeBuffer())
@@ -252,16 +260,11 @@ actual class TCPClientSocket {
                 read += tmpRead
                 read < minToRead
             }else{
-                read = -1
-                false
+                throw PeerClosedException()
             }
         }
 
         buffer.cursor += read
-
-        if(read == -1){
-            this.close()
-        }
 
         return read
     }
@@ -292,7 +295,7 @@ actual class TCPClientSocket {
     /**
      * Create a standalone write actor
      */
-    private fun writeActor(selectorManager: SuspentionMap, channel: SocketChannel) = this.coroutineScope.actor<WriteActorRequest>{
+    private fun writeActor(selectorManager: SuspentionMap, channel: SocketChannel) = this.coroutineScope.actor<WriteActorRequest>(this.internalExceptionHandler){
         for (request in this.channel){
             if(request is CloseRequest){
                 request.deferred.complete(true)
@@ -300,47 +303,42 @@ actual class TCPClientSocket {
             }
 
             request as WriteRequest
-            try {
-                val buf = (request.data as JVMMultiplatformBuffer).nativeBuffer()
+            val buf = (request.data as JVMMultiplatformBuffer).nativeBuffer()
 
-                //if the buffer is larger than our TCP send buffer, there is a good chance we will have to register the OP_WRITE interest
-                //a few times, so we use the selectAlways() method to optimise that and loop while there still is data to write
-                if(request.data.limit >= channel.getOption(StandardSocketOptions.SO_SNDBUF)){
+            //if the buffer is larger than our TCP send buffer, there is a good chance we will have to register the OP_WRITE interest
+            //a few times, so we use the selectAlways() method to optimise that and loop while there still is data to write
+            if(request.data.limit >= channel.getOption(StandardSocketOptions.SO_SNDBUF)){
+                try {
                     suspentionMap.selectAlways(SelectionKey.OP_WRITE){
                         try {
                             channel.write(buf)
                             buf.hasRemaining()
                         }catch (e : Exception){
-                            val exc = SokException(e.toString())
-                            request.deferred.completeExceptionally(exc)
-                            //we can throw exceptions here as the Selector send exceptions back to us
-                            throw exc
+                            throw PeerClosedException()
                         }
                     }
-                }else{
-                    //even if our buffer is smaller than our TCP send buffer, a single write might not be enough
-                    while (buf.hasRemaining()){
-                        try {
-                            channel.write(buf)
-                        }catch (e : Exception){
-                            val exc = SokException(e.toString())
-                            request.deferred.completeExceptionally(exc)
-                            //we can throw exceptions here as the Selector send exceptions back to us
-                            throw exc
-                        }
-
-                        if(buf.hasRemaining()) selectorManager.selectOnce(SelectionKey.OP_WRITE)
-                    }
+                }catch (e : Exception){
+                    request.deferred.completeExceptionally(e)
+                    throw e
                 }
+            }else{
+                //even if our buffer is smaller than our TCP send buffer, a single write might not be enough
+                while (buf.hasRemaining()){
+                    try {
+                        channel.write(buf)
+                    }catch (e : Exception){
+                        val exc = PeerClosedException()
+                        request.deferred.completeExceptionally(exc)
+                        //we can throw exceptions here as the Selector send exceptions back to us
+                        throw exc
+                    }
 
-                request.data.cursor = request.data.limit
-                request.deferred.complete(true)
-            }catch (e : Exception){
-                val exc = SokException(e.toString())
-                request.deferred.completeExceptionally(exc)
-                //we can throw exceptions here as the Selector send exceptions back to us
-                throw exc
+                    if(buf.hasRemaining()) selectorManager.selectOnce(SelectionKey.OP_WRITE)
+                }
             }
+
+            request.data.cursor = request.data.limit
+            request.deferred.complete(true)
         }
     }
     /**

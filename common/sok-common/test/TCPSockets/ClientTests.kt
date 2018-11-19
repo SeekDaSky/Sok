@@ -11,6 +11,7 @@ import Sok.Socket.TCP.createTCPClientSocket
 import Sok.Internal.runTest
 import Sok.Socket.Options.Options
 import Sok.Socket.Options.SocketOption
+import Sok.Socket.TCP.createTCPServerSocket
 import kotlinx.coroutines.*
 import kotlin.js.JsName
 import kotlin.math.min
@@ -289,7 +290,7 @@ class ClientTests {
 }
 
 suspend fun createTCPServer(address : String, port : Int, test : suspend (TCPServerSocket) -> Unit){
-    val server = TCPServerSocket(address,port)
+    val server = createTCPServerSocket(address,port)
     assertTrue { !server.isClosed }
     try {
         test.invoke(server)

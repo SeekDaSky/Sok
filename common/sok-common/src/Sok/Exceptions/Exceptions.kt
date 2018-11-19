@@ -33,6 +33,13 @@ class NormalCloseException(message : String = "The socket was gracefully closed"
  */
 class ForceCloseException(message : String = "The socket was forcefully closed") : CloseException(message)
 
+/**
+ * Exception thrown when trying to perform an I/O on a closed socket
+ *
+ * @param message Message given by the exception when thrown
+ */
+class PeerClosedException(message: String = "The socket was closed by peer") : CloseException(message)
+
 
 
 /**
@@ -50,18 +57,25 @@ class ConnectionRefusedException(message : String = "The peer refused the connec
 class OptionNotSupportedException(message: String = "The option is not supported on this platform") : SokException(message)
 
 /**
- * Exception thrown when trying to perform an I/O on a closed socket
- *
- * @param message Message given by the exception when thrown
- */
-class SocketClosedException(message: String = "The socket is closed") : SokException(message)
-
-/**
  * Exception thrown when trying to read the socket while another read call is executing
  *
  * @param message Message given by the exception when thrown
  */
 class ConcurrentReadingException(message: String = "The socket si already being read") : SokException(message)
+
+/**
+ * Exception thrown when trying to bind a socket to an address/port already bound
+ *
+ * @param message Message given by the exception when thrown
+ */
+class AddressInUseException(message: String = "The address/port is already in use") : SokException(message)
+
+/**
+ * Exception thrown when trying to perform an I/O on a closed socket
+ *
+ * @param message Message given by the exception when thrown
+ */
+class SocketClosedException(message: String = "The socket is closed") : SokException(message)
 
 
 

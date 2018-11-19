@@ -1,12 +1,14 @@
 package Sok.Selector
 
+import Sok.Exceptions.PeerClosedException
+import Sok.Exceptions.handleException
 import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import java.lang.IllegalArgumentException
 import java.nio.channels.CancelledKeyException
 import java.nio.channels.SelectableChannel
 import java.nio.channels.SelectionKey
+import kotlin.Exception
 
 /**
  * A SuspentionMap will be used by the sockets to simply and efficiently use NIO Selectors.
@@ -99,11 +101,19 @@ internal class SuspentionMap(
      */
     private suspend fun suspend(interest: Int){
 
-        val job = this.selector.coroutineScope.launch(this.exceptionHandler) {
-            this@SuspentionMap.selectionKey.interestOps(this@SuspentionMap.interest.value)
+        var exc : Throwable? = null
+        val job = this.selector.coroutineScope.launch {
+            //we have to try catch the whole block or else the exception is brought back to the executor, and das not gud
+            try {
 
-            suspendCancellableCoroutine<Boolean> {
-                try {
+                //convert exception
+                try{
+                    this@SuspentionMap.selectionKey.interestOps(this@SuspentionMap.interest.value)
+                }catch (e : CancelledKeyException){
+                    throw PeerClosedException()
+                }
+
+                suspendCancellableCoroutine<Boolean> {
                     when(interest){
                         SelectionKey.OP_READ -> this@SuspentionMap.OP_READ = it
                         SelectionKey.OP_WRITE -> this@SuspentionMap.OP_WRITE = it
@@ -111,16 +121,23 @@ internal class SuspentionMap(
                         SelectionKey.OP_CONNECT -> this@SuspentionMap.OP_CONNECT = it
                         else -> throw IllegalArgumentException("The interest is not valid")
                     }
-                }catch (e : ClosedReceiveChannelException){
-                    //the suspention map was closed
                 }
+            }catch (e : Exception){
+                exc = e
+                this@SuspentionMap.exceptionHandler.handleException(e)
             }
         }
 
         if(this.selector.isInSelection){
             this.selector.wakeup()
         }
+
         job.join()
+
+
+        if(exc != null){
+            throw exc!!
+        }
     }
 
     /**
@@ -136,10 +153,22 @@ internal class SuspentionMap(
         }
 
         when(interest){
-            SelectionKey.OP_READ -> this.alwaysSelectRead = null
-            SelectionKey.OP_WRITE -> this.alwaysSelectWrite = null
-            SelectionKey.OP_ACCEPT -> this.alwaysSelectAccept = null
-            SelectionKey.OP_CONNECT -> this.alwaysSelectConnect = null
+            SelectionKey.OP_READ -> {
+                this.alwaysSelectRead = null
+                this.OP_READ = null
+            }
+            SelectionKey.OP_WRITE -> {
+                this.alwaysSelectWrite = null
+                this.OP_WRITE = null
+            }
+            SelectionKey.OP_ACCEPT -> {
+                this.alwaysSelectAccept = null
+                this.OP_ACCEPT = null
+            }
+            SelectionKey.OP_CONNECT -> {
+                this.alwaysSelectConnect = null
+                this.OP_CONNECT = null
+            }
             else -> throw IllegalArgumentException("The interest is not valid")
         }
     }
@@ -147,13 +176,16 @@ internal class SuspentionMap(
     /**
      * close the suspention map, thus cancelling any registered socket
      */
-    fun close(){
+    fun close(exception : Throwable = PeerClosedException()){
         this.selectionKey.cancel()
 
-        this.OP_ACCEPT?.cancel()
-        this.OP_READ?.cancel()
-        this.OP_WRITE?.cancel()
-        this.OP_CONNECT?.cancel()
+        this.OP_ACCEPT?.cancel(exception)
+        this.OP_READ?.cancel(exception)
+        this.OP_WRITE?.cancel(exception)
+        this.OP_CONNECT?.cancel(exception)
 
+        if(this.selector.isInSelection){
+            this.selector.wakeup()
+        }
     }
 }
