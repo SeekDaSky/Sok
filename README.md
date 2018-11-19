@@ -273,7 +273,9 @@ fun main(args: Array<String>) = runBlocking{
 
 ### JS
 
- For now the JS implementation is really slow and you probably don't want to use this in production at all, and because this platform does not support `runBlocking` it makes it a bit trickier to use it on multiplatform projects. Aside from that there is no known issues with the paltform behaviour.
+ For now the JS implementation is really slow and you probably don't want to use this in production at all, and because this platform does not support `runBlocking` it makes it a bit trickier to use it on multiplatform projects.
+
+The only known behavior difference is that Sok `write` method can't throw a `PeerClosedException` because Node.js does not give any information about the success of the write operation.
 
 ## Plans for the future
 

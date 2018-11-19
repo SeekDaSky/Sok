@@ -63,9 +63,12 @@ actual class TCPClientSocket{
      * Exception handler used to catch everything that comes from the internal coroutines
      */
     private val internalExceptionHandler = CoroutineExceptionHandler{_,e ->
+        if(e is CloseException && this.isCloseExceptionSent) return@CoroutineExceptionHandler
+        this.isCloseExceptionSent = true
         this.forceClose()
         this.exceptionHandler(e)
     }
+    private var isCloseExceptionSent = false
 
     /**
      * Wrap a Node.js socket with Sok Client socket class
@@ -81,13 +84,15 @@ actual class TCPClientSocket{
          * and the close related operations will be executed only once so we can call close() multiple times without problem
          */
         socket.on("end"){
-            GlobalScope.launch(this.internalExceptionHandler) {
-                this@TCPClientSocket.close()
-            }
+            val exc = PeerClosedException()
+            this.readingContinuation?.cancel(exc)
+            this.internalExceptionHandler.handleException(exc)
         }
 
         socket.on("error"){ e ->
-            this.internalExceptionHandler.handleException(SokException(e.toString()))
+            val exc = PeerClosedException(e.toString())
+            this.readingContinuation?.cancel(exc)
+            this.internalExceptionHandler.handleException(exc)
         }
 
         //start the write actor and bind the operation in case of failure (we close the socket)
@@ -112,8 +117,8 @@ actual class TCPClientSocket{
             this.writeChannel.close()
             deferred.await()
 
+            this.readingContinuation?.cancel(NormalCloseException())
             this.socket.end()
-            this.readingContinuation?.cancel()
         }
     }
 
@@ -123,8 +128,9 @@ actual class TCPClientSocket{
     actual fun forceClose(){
         if(!this.isClosed){
             this.isClosed = true
-            this.readingContinuation?.cancel()
             this.writeChannel.close()
+            this.readingContinuation?.cancel(ForceCloseException())
+            this.internalExceptionHandler.handleException(ForceCloseException())
             this.socket.end()
         }
     }
@@ -225,27 +231,31 @@ actual class TCPClientSocket{
         var total = -1L
         (buffer as JSMultiplatformBuffer)
 
-        buffer.cursor = 0
-        try {
-            this.registerReadable{
-                //read while there is data
-                while (this.readInto(buffer) != -1) {
-                    total += buffer.cursor
-                    val read = buffer.cursor
-                    buffer.cursor = 0
-                    //if the operation returns false, unregister
+        var exc : Throwable? = null
+        this.registerReadable{
+            //read while there is data
+            buffer.cursor = 0
+            while (this.readInto(buffer) != -1) {
+                total += buffer.cursor
+                val read = buffer.cursor
+                buffer.cursor = 0
+                //if the operation returns false, unregister
+                try {
                     if (!operation(buffer, read)) {
                         return@registerReadable false
                     }
+                }catch (e : Exception){
+                    exc = e
+                    return@registerReadable false
                 }
-
-                total != -1L && !this.isClosed
             }
-        }catch (e : CancellationException){
-            total = -1
+            !this.isClosed
         }
 
-        if(total == -1L) throw SokException("BulkRead failed")
+        if(exc != null){
+            throw exc!!
+        }
+
 
         return total
     }
@@ -268,17 +278,11 @@ actual class TCPClientSocket{
         if(this.readingContinuation != null) throw ConcurrentReadingException()
 
         var read = -1
-        try {
-            this.registerReadable {
-                (buffer as JSMultiplatformBuffer)
-                read = this.readInto(buffer)
-                false
-            }
-        }catch (e : CancellationException){
-            read = -1
+        this.registerReadable {
+            (buffer as JSMultiplatformBuffer)
+            read = this.readInto(buffer)
+            read == -1
         }
-
-        if(read == -1) throw SokException("Read failed")
 
         return read
     }
@@ -302,23 +306,19 @@ actual class TCPClientSocket{
 
         var read : Int = 0
 
-        try {
-            this.registerReadable {
-                (buffer as JSMultiplatformBuffer)
-                //if we successfully read some byte and that then the read fails the read value wont be -1 if we add it directly
-                if(buffer.hasRemaining()){
-                    val tmp = this.readInto(buffer)
-                    read += tmp
-                    tmp != -1 && read < minToRead && !this.isClosed
-                }else{
-                    false
-                }
+        this.registerReadable {
+            (buffer as JSMultiplatformBuffer)
+            //if we successfully read some byte and that then the read fails the read value wont be -1 if we add it directly
+            if(buffer.hasRemaining()){
+                val tmp = this.readInto(buffer)
+                read += tmp
+                tmp != -1 && read < minToRead && !this.isClosed
+            }else{
+                false
             }
-        }catch (e : CancellationException){
-            read = -1
         }
 
-        if(read < minToRead) throw SokException("Read with minimum failed")
+        if(read < minToRead) throw PeerClosedException()
 
         return read
     }
@@ -350,7 +350,7 @@ actual class TCPClientSocket{
      */
     private fun writeActor(socket : dynamic) : SendChannel<WriteActorRequest>{
         val channel = Channel<WriteActorRequest>()
-        GlobalScope.launch(this.internalExceptionHandler){
+        val job = GlobalScope.launch(this.internalExceptionHandler){
             for (request in channel){
 
                 //close signal received
@@ -373,12 +373,8 @@ actual class TCPClientSocket{
                     }
 
                     suspendCoroutine<Unit> {
-                        socket.write(buf){ err ->
-                            if(err != null){
-                                val exc = SokException(err.toString())
-                                request.deferred.completeExceptionally(exc)
-                                it.resumeWithException(exc)
-                            }else{
+                        socket.write(buf){
+                            if(!request.deferred.isCompleted){
                                 request.data.cursor += buf.length
                                 request.deferred.complete(true)
                                 it.resume(Unit)
@@ -397,6 +393,10 @@ actual class TCPClientSocket{
                     throw exc
                 }
             }
+        }
+
+        channel.invokeOnClose {
+            job.cancel()
         }
 
         return channel
