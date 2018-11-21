@@ -196,46 +196,61 @@ class Selector private constructor() {
         //iterate through the registered sockets and
         for (i in (0 until this.registeredSockets.size)) {
             val struct: pollfd = this.pollArrayStruct[i].reinterpret()
-            val sk = this@Selector.registeredSockets[i]
-
+            val sk : SelectionKey
             try {
-                if (struct.revents.and(POLLIN.toShort()) == POLLIN.toShort()) {
-                    val cont = sk.OP_READ!!
-                    if (sk.alwaysSelectRead == null) {
-                        //if not, unregister then resume the coroutine
-                        sk.unsafeUnregister(Interests.OP_READ)
-                        cont.resume(true)
-                    } else {
-                        val request = sk.alwaysSelectRead!!
-                        //if the operation returns false, we can unregister
+                sk = this@Selector.registeredSockets[i]
+
+                if(sk.socket != struct.fd) throw Exception("File descriptor mismatch")
+            }catch (e : Exception){
+                //can happen if the socket unregistered while the selector is polling, if so we cancel and poll again (with the correct sockets)
+                break
+            }
+
+
+            if (struct.revents.and(POLLIN.toShort()) == POLLIN.toShort()) {
+                val cont = sk.OP_READ!!
+                if (sk.alwaysSelectRead == null) {
+                    //if not, unregister then resume the coroutine
+                    sk.unsafeUnregister(Interests.OP_READ)
+                    cont.resume(true)
+                } else {
+                    val request = sk.alwaysSelectRead!!
+                    //if the operation returns false, we can unregister
+                    try {
                         if (!request.operation.invoke()) {
                             sk.unsafeUnregister(Interests.OP_READ)
                             cont.resume(true)
                         }
+                    }catch (e : Exception){
+                        sk.unsafeUnregister(Interests.OP_READ)
+                        cont.resumeWithException(e)
                     }
                 }
+            }
 
-                if (struct.revents.and(POLLOUT.toShort()) == POLLOUT.toShort()) {
-                    val cont = sk.OP_WRITE!!
-                    if (sk.alwaysSelectWrite == null) {
-                        //if not, unregister then resume the coroutine
-                        sk.unsafeUnregister(Interests.OP_WRITE)
-                        cont.resume(true)
-                    } else {
-                        val request = sk.alwaysSelectWrite!!
-                        //if the operation returns false, we can unregister
+            if (struct.revents.and(POLLOUT.toShort()) == POLLOUT.toShort()) {
+                val cont = sk.OP_WRITE!!
+                if (sk.alwaysSelectWrite == null) {
+                    //if not, unregister then resume the coroutine
+                    sk.unsafeUnregister(Interests.OP_WRITE)
+                    cont.resume(true)
+                } else {
+                    val request = sk.alwaysSelectWrite!!
+                    //if the operation returns false, we can unregister
+                    try {
                         if (!request.operation.invoke()) {
                             sk.unsafeUnregister(Interests.OP_WRITE)
                             cont.resume(true)
                         }
+                    }catch (e : Exception){
+                        sk.unsafeUnregister(Interests.OP_WRITE)
+                        cont.resumeWithException(e)
                     }
                 }
+            }
 
-                if (struct.revents.and(POLLHUP.toShort()) == POLLHUP.toShort() || struct.revents.and(POLLERR.toShort()) == POLLERR.toShort()) {
-                    sk.exceptionHandler.handleException(SokException("Poll called returned POLLHUP or POLLERR"))
-                }
-            }catch(e : Exception){
-                sk.exceptionHandler.handleException(e)
+            if (struct.revents.and(POLLHUP.toShort()) == POLLHUP.toShort() || struct.revents.and(POLLERR.toShort()) == POLLERR.toShort()) {
+                sk.close(PeerClosedException())
             }
         }
     }

@@ -26,11 +26,6 @@ import Sok.Exceptions.OptionNotSupportedException
 actual class TCPClientSocket{
 
     /**
-     * Lmbda called when the socket closes
-     */
-    private val closeHandler : AtomicRef<() -> Unit> = atomic({})
-
-    /**
      * Used to only allow one read at a time
      */
     private val isReading : AtomicBoolean = atomic(false)
@@ -54,9 +49,11 @@ actual class TCPClientSocket{
      * Exception handler used to catch everything that comes from the internal coroutines
      */
     private val internalExceptionHandler = CoroutineExceptionHandler{_,e ->
-        this.forceClose()
+        if(e is CloseException && !this.isCloseExceptionSent.compareAndSet(false,true)) return@CoroutineExceptionHandler
         this.exceptionHandler(e)
+        this.forceClose()
     }
+    private val isCloseExceptionSent = atomic(false)
 
     /**
      * Selection key of the socket
@@ -111,7 +108,7 @@ actual class TCPClientSocket{
             this.writeActor.send(CloseRequest(deferred))
             this.writeActor.close()
             deferred.await()
-            this.selectionKey.close()
+            this.selectionKey.close(NormalCloseException())
         }
     }
 
@@ -121,7 +118,7 @@ actual class TCPClientSocket{
     actual fun forceClose(){
         if(this._isClosed.compareAndSet(false,true)){
             this.writeActor.close()
-            this.selectionKey.close()
+            this.selectionKey.close(ForceCloseException())
             this.internalExceptionHandler.handleException(ForceCloseException())
         }
     }
@@ -150,22 +147,28 @@ actual class TCPClientSocket{
 
         buffer as NativeMultiplatformBuffer
         var read : Long = 0
+
+        var exc : Throwable? = null
         this.selectionKey.selectAlways(Interests.OP_READ){
 
             val result = read(this.selectionKey.socket,buffer.nativePointer(),buffer.limit.toULong()).toInt()
 
             if(result == -1 || result == 0){
-                read = -1
-                throw SokException("Read call failed")
+                throw PeerClosedException("Read call failed")
             }else{
                 read += result
                 buffer.cursor = 0
-                operation(buffer,result)
+                try {
+                    operation(buffer,result)
+                }catch (e : Exception){
+                    exc = e
+                    false
+                }
             }
         }
 
-        if(read == -1.toLong()){
-            this.close()
+        if(exc != null){
+            throw exc!!
         }
 
         this.isReading.value = false
@@ -191,8 +194,7 @@ actual class TCPClientSocket{
         val result = read(this.selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().toULong()).toInt()
 
         if(result == -1 || result == 0){
-            this.close()
-            return -1
+            throw PeerClosedException()
         }
 
         buffer.cursor = result
@@ -221,19 +223,13 @@ actual class TCPClientSocket{
         this.selectionKey.selectAlways(Interests.OP_READ){
             val result = read(this.selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().toULong()).toInt()
 
-            if(result == -1){
-                read = -1
-                false
+            if(result == -1 || result == 0){
+                throw PeerClosedException()
             }else{
                 buffer.cursor = buffer.cursor + result
                 read += result
                 read < minToRead
             }
-        }
-
-        if(read == -1){
-            this.close()
-            return -1
         }
 
         this.isReading.value = false
@@ -275,39 +271,39 @@ actual class TCPClientSocket{
                 request as WriteRequest
                 val buffer = request.data as NativeMultiplatformBuffer
 
-                if(buffer.limit > sendBufferSize){
-                    selectionKey.selectAlways(Interests.OP_WRITE){
-                        val result = write(selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().toULong()).toInt()
+                try {
+                    if(buffer.limit > sendBufferSize){
+                        selectionKey.selectAlways(Interests.OP_WRITE){
+                            val result = write(selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().toULong()).toInt()
+                            if(result == -1){
+                                throw PeerClosedException()
 
-                        if(result == -1){
-                            val exc = SokException()
-                            request.deferred.completeExceptionally(exc)
-                            //we can throw exceptions here as the Selector send exceptions back to us
-                            throw exc
-                        }else{
-                            buffer.cursor += result
-                            buffer.hasRemaining()
+                            }else{
+                                buffer.cursor += result
+                                buffer.hasRemaining()
+                            }
                         }
-                    }
-                    request.deferred.complete(true)
-                }else{
-                    while (buffer.remaining() > 0){
+                        request.deferred.complete(true)
+                    }else{
+                        while (buffer.remaining() > 0){
 
-                        val result = write(selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().toULong()).toInt()
+                            val result = write(selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().toULong()).toInt()
 
-                        if(result == -1){
-                            val exc = SokException()
-                            request.deferred.completeExceptionally(exc)
-                            //we can throw exceptions here as the Selector send exceptions back to us
-                            throw exc
+                            if(result == -1){
+                                throw PeerClosedException()
+                            }
+
+                            buffer.cursor = buffer.cursor + result
+
+                            if(buffer.remaining() >= 0) selectionKey.select(Interests.OP_WRITE)
                         }
-
-                        buffer.cursor = buffer.cursor + result
-
-                        if(buffer.remaining() >= 0) selectionKey.select(Interests.OP_WRITE)
+                        request.deferred.complete(true)
                     }
-                    request.deferred.complete(true)
+                }catch (e : Exception){
+                    request.deferred.completeExceptionally(e)
+                    throw e
                 }
+
             }
         }
         return channel

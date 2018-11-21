@@ -30,12 +30,12 @@ internal class SelectionKey(val socket : Int,
     private val isClosed = atomic(false)
 
     //continuation to resume when a write event comes
-    var OP_WRITE : Continuation<Boolean>? = null
+    var OP_WRITE : CancellableContinuation<Boolean>? = null
     //object containing the operation to call in case of a SelectAlways
     var alwaysSelectWrite : SelectAlways? = null
 
     //continuation to resume when a read event comes
-    var OP_READ : Continuation<Boolean>? = null
+    var OP_READ : CancellableContinuation<Boolean>? = null
     //object containing the operation to call in case of a SelectAlways
     var alwaysSelectRead : SelectAlways? = null
 
@@ -66,18 +66,23 @@ internal class SelectionKey(val socket : Int,
     suspend fun select(interests: Interests){
         require(!this.isClosed.value)
 
-        suspendCoroutine<Boolean>{
-            when(interests){
-                Interests.OP_READ -> {
-                    this.OP_READ = it
-                    this.readRegistered.value = true
+        try {
+            suspendCancellableCoroutine<Boolean>{
+                when(interests){
+                    Interests.OP_READ -> {
+                        this.OP_READ = it
+                        this.readRegistered.value = true
+                    }
+                    Interests.OP_WRITE ->{
+                        this.OP_WRITE = it
+                        this.writeRegistered.value = true
+                    }
                 }
-                Interests.OP_WRITE ->{
-                    this.OP_WRITE = it
-                    this.writeRegistered.value = true
-                }
-            }
 
+            }
+        }catch (e : Exception){
+            this.exceptionHandler.handleException(e)
+            throw e
         }
     }
 
@@ -90,20 +95,25 @@ internal class SelectionKey(val socket : Int,
     suspend fun selectAlways(interests: Interests, operation : () -> Boolean){
         require(!this.isClosed.value)
 
-        suspendCoroutine<Boolean>{
-            when(interests){
-                Interests.OP_READ -> {
-                    this.OP_READ = it
-                    this.alwaysSelectRead = SelectAlways(operation)
-                    this.readRegistered.value = true
+        try {
+            suspendCancellableCoroutine<Boolean>{
+                when(interests){
+                    Interests.OP_READ -> {
+                        this.OP_READ = it
+                        this.alwaysSelectRead = SelectAlways(operation)
+                        this.readRegistered.value = true
+                    }
+                    Interests.OP_WRITE ->{
+                        this.OP_WRITE = it
+                        this.alwaysSelectWrite = SelectAlways(operation)
+                        this.writeRegistered.value = true
+                    }
                 }
-                Interests.OP_WRITE ->{
-                    this.OP_WRITE = it
-                    this.alwaysSelectWrite = SelectAlways(operation)
-                    this.writeRegistered.value = true
-                }
-            }
 
+            }
+        }catch (e : Exception){
+            this.exceptionHandler.handleException(e)
+            throw e
         }
     }
 
@@ -130,18 +140,19 @@ internal class SelectionKey(val socket : Int,
     /**
      * Close the selection key, cancelling every suspention registered and unregistering from the selector
      */
-    fun close(){
+    fun close(exception : Exception = SocketClosedException()){
         if(this.isClosed.compareAndSet(false,true)){
+            //unregister from the selector
+            this.selector.unregister(this)
+
+            this.selector
             //resume all coroutines
-            this.OP_WRITE?.resumeWithException(SocketClosedException())
-            this.OP_READ?.resumeWithException(SocketClosedException())
+            this.OP_WRITE?.cancel(exception)
+            this.OP_READ?.cancel(exception)
 
             //unregister every interest
             this.unsafeUnregister(Interests.OP_WRITE)
             this.unsafeUnregister(Interests.OP_READ)
-
-            //unregister from the selector
-            this.selector.unregister(this)
 
             //close native socket
             close(this.socket)

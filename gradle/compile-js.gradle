@@ -25,3 +25,9 @@ compileKotlin2Js {
         outputFile = new File(outputFile.parent, baseName + ".js")
     }
 }
+
+//make sure the tests are executed  after atomicfu transformed all files
+test.mustRunAfter{
+    transformAtomicfuJsFiles
+    transformTestAtomicfuJsFiles
+}
