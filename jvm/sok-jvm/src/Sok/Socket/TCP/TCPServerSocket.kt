@@ -94,15 +94,9 @@ actual class TCPServerSocket{
     actual suspend fun accept() : TCPClientSocket {
         if(this.isClosed) throw SocketClosedException()
         return withContext(Dispatchers.IO+this.internalExceptionHandler){
-            try{
-                this@TCPServerSocket.suspentionMap.selectOnce(SelectionKey.OP_ACCEPT)
-                val channel = this@TCPServerSocket.channel.accept()
-                Sok.Socket.TCP.TCPClientSocket(channel, Selector.defaultSelectorPool)
-
-            }catch (e : Exception){
-                throw SocketClosedException()
-            }
-
+            this@TCPServerSocket.suspentionMap.selectOnce(SelectionKey.OP_ACCEPT)
+            val channel = this@TCPServerSocket.channel.accept()
+            Sok.Socket.TCP.TCPClientSocket(channel, Selector.defaultSelectorPool)
         }
     }
 
@@ -114,7 +108,7 @@ actual class TCPServerSocket{
         if(!this._isClosed.getAndSet(true)){
             this.internalExceptionHandler.handleException(NormalCloseException())
             //stop selection loop
-            this.suspentionMap.close()
+            this.suspentionMap.close(NormalCloseException())
             this.channel.close()
         }
     }

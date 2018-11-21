@@ -34,6 +34,7 @@ class ExceptionsTests {
         server.close()
     }
 
+
     @Test
     @JsName("AcceptThrowsWhenServerCloses")
     fun `Accept throws when server closes`() = runTest{
@@ -46,10 +47,10 @@ class ExceptionsTests {
                 server.accept()
                 fail("SocketClosedException should have been thrown")
             }catch (e : Exception){
-                assertTrue { e is SocketClosedException }
+                assertTrue { e is NormalCloseException }
             }
         }
-        yield()
+        delay(10)
         server.close()
         job.join()
     }

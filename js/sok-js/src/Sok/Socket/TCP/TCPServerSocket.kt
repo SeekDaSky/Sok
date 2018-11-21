@@ -79,7 +79,7 @@ actual class TCPServerSocket{
     actual fun close(){
         if(!this.isClosed){
             this.isClosed = true
-            this.acceptChannel.close(SocketClosedException())
+            this.acceptChannel.close(NormalCloseException())
             this.socket.close{
                 this.internalExceptionHandler.handleException(NormalCloseException())
             }
