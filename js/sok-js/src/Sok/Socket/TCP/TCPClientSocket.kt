@@ -20,8 +20,10 @@ import kotlin.math.min
  * the accumulation of too many data.
  *
  * @property isClosed Keep track of the socket status
- * @property exceptionHandler Lambda that will be called when a fatal exception is thrown within the library, for further information
- * look at the "Exception model" part of the documentation
+ * @property exceptionHandler Lambda that will be called when an exception resulting in the closing of the socket is thrown. This
+ * happen when calling the `close` or `forceClose` method, if the peer close the socket or if something wrong happen internally.
+ * Exception that does not affect the socket state will not be received by this handler (exception in the `bulkRead` operation
+ * lambda for example)
  */
 actual class TCPClientSocket{
 
@@ -41,17 +43,22 @@ actual class TCPClientSocket{
     private val socket : dynamic
 
     /**
-     * index in the internal stream buffer
+     * index in the internal stream buffer.
+     * When we "read" data from the socket, Node gives us an already filled Buffer, if that buffer is the amount of data in it
+     * is larger that the remaining space in the user MultiplatformBuffer, we copy a part of the Node Buffer and call unshift
+     * to put it back in the socket for a later read. The indexInStream property keeps track of where we are in the unshifted
+     * buffer
      */
     private var indexInStream = 0
 
     /**
-     * Continuation to resume when there is data to read. This continuation must be cancelled when the socket is closed
+     * Continuation used to suspend the caller of a read primitive. This must be cancelled on socket close or on error. We
+     * also use it to know if there is already an ongoing read call to prevent concurrent reads.
      */
     private var readingContinuation : CancellableContinuation<Unit>? = null
 
     /**
-     * Because Node.js does not give us ways to get what option are set on TCP socket (but on UDP socket you can, go figure)
+     * Node.js does not give us ways to get what option are set on TCP socket (but on UDP socket you can, go figure)
      * so we do it ourself
      */
     private val optionMap = mutableMapOf<Options,Any>(
@@ -80,8 +87,7 @@ actual class TCPClientSocket{
         this.socket = socket
 
         /**
-         * Register all close-related events, at this point Sok does make a difference between normal and abnormal close event
-         * and the close related operations will be executed only once so we can call close() multiple times without problem
+         * Register all close-related events
          */
         socket.on("end"){
             val exc = PeerClosedException()
@@ -90,7 +96,7 @@ actual class TCPClientSocket{
         }
 
         socket.on("error"){ e ->
-            val exc = PeerClosedException(e.toString())
+            val exc = PeerClosedException()
             this.readingContinuation?.cancel(exc)
             this.internalExceptionHandler.handleException(exc)
         }
@@ -104,31 +110,44 @@ actual class TCPClientSocket{
 
     /**
      * gracefully stops the socket. The method suspends as it waits for all the writing requests in the channel to be
-     * executed before effectively closing the channel
+     * executed before effectively closing the channel. Once the socket is closed a `NormalCloseException` will be passed
+     * to the exception handler and to any ongoing read method call
      */
     actual suspend fun close(){
         //let the waiting coroutines execute (in case they want to write something) before closing
         yield()
+        //prevent multiple close call
         if(!this.isClosed){
             this.isClosed = true
 
+            //wait for the end of the write queue
             val deferred = CompletableDeferred<Boolean>()
             this.writeChannel.send(CloseRequest(deferred))
             this.writeChannel.close()
             deferred.await()
 
+            /**
+             * cancel reading calls and end the socket, the write actor will take care of sending the NormalCloseException to
+             * the exception handler
+             */
             this.readingContinuation?.cancel(NormalCloseException())
             this.socket.end()
         }
     }
 
     /**
-     * forcefully closes the channel without checking the writing request queue
+     * forcefully closes the channel without checking the writing request queue. Once the socket is closed a `ForceCloseException`
+     * will be passed to the exception handler and to any ongoing read method call
      */
     actual fun forceClose(){
+        //prevent multiple close call
         if(!this.isClosed){
             this.isClosed = true
             this.writeChannel.close()
+            /**
+             * cancel reading calls and end the socket, as we forced the write actor to close we have to send the ForceCloseException
+             * ourself
+             */
             this.readingContinuation?.cancel(ForceCloseException())
             this.internalExceptionHandler.handleException(ForceCloseException())
             this.socket.end()
@@ -148,6 +167,7 @@ actual class TCPClientSocket{
         //read from the socket, with a minimum or not
         val internalBuffer : Buffer? = this.socket.read()
 
+        //if the there is no data to read, return -1, the caller will decide if this is normal or not
         if(internalBuffer == null){
             return -1
         }
@@ -155,14 +175,14 @@ actual class TCPClientSocket{
         //backup cursor
         val cursor = buffer.cursor
 
-        //if we did not unshit data and that the buffer is small enough to fit in the MultiplatformBuffer, swap the backbuffer
+        //if we did not unshit data and that the buffer is small enough to fit in the MultiplatformBuffer, copy everything
         if(internalBuffer.length <= buffer.remaining() && this.indexInStream == 0){
             buffer.cursor += internalBuffer.copy(buffer.nativeBuffer(),buffer.cursor,0,internalBuffer.length)
         }else{
-            //transfer data
+            //transfer all the data we can
             val read = internalBuffer.copy(buffer.nativeBuffer(),buffer.cursor,this.indexInStream,min(internalBuffer.length,buffer.remaining()))
             buffer.cursor += read
-            //if we read all the internal buffer, discard, else unshift it and update indexInStream
+            //if we read all the remaining data from the nodejs buffer, discard it, else unshift it and update indexInStream
             if(this.indexInStream + read != internalBuffer.length){
                 this.indexInStream += buffer.limit
                 this.socket.unshift(internalBuffer)
@@ -171,20 +191,24 @@ actual class TCPClientSocket{
             }
         }
 
+        //compare the cursor before and after to know how much data was read
         return buffer.cursor - cursor
     }
 
     /**
-     * Suspend the caller until a "readable" event is received, when received the "operation" block is called. This
-     * block returns either true if we need to listen for this event one more time, are false to unregister
+     * Suspend the caller, when a "readable" event is received the "operation" block is called. This
+     * block returns either true if we need to listen for this event one more time, are false to unregister and resume
      *
      * @param operation lambda to call after each event
      */
     private suspend fun registerReadable(operation : () -> Boolean ){
         suspendCancellableCoroutine<Unit> {
+            //store the continuation
             this.readingContinuation = it
             socket.on("readable"){
+                //should we continue?
                 if(!operation.invoke()){
+                    //unregister everything
                     this.readingContinuation = null
                     socket.removeAllListeners("readable")
                     it.resume(Unit)
@@ -211,14 +235,17 @@ actual class TCPClientSocket{
      * not use it between two iterations and must avoid leaking it to exterior coroutines/threads. each iteration will read
      * n bytes ( 0 < n <= buffer.limit ) and set the cursor to 0, the read parameter of the operation is the amount of data read.
      *
-     * @throws SokException
+     * If an exception is thrown in the operation lambda, the exception will not close the socket and will not be received by the
+     * exception handler, it will instead be thrown directly by the method
+     *
+     * @throws PeerClosedException
      * @throws SocketClosedException
+     * @throws BufferOverflowException
      * @throws ConcurrentReadingException
 
      *
      * @param buffer buffer used to store the data read. the cursor will be reset after each iteration. The limit of the buffer remains
      * untouched so the developer can chose the amout of data to read.
-     *
      * @param operation lambda called after each read event. The first argument will be the buffer and the second the amount of data read
      *
      * @return Total number of byte read
@@ -231,9 +258,13 @@ actual class TCPClientSocket{
         var total = -1L
         (buffer as JSMultiplatformBuffer)
 
+        //track if the operation lambda threw something
         var exc : Throwable? = null
         this.registerReadable{
-            //read while there is data
+            /**
+             * registerReadable will execute the operation every time there is a readable event, but when we read it is possible that
+             * we "unshifted" the node.js buffer, thus we can "readInto" multiple times before reaching the end of the buffer.
+             */
             buffer.cursor = 0
             while (this.readInto(buffer) != -1) {
                 total += buffer.cursor
@@ -252,6 +283,7 @@ actual class TCPClientSocket{
             !this.isClosed
         }
 
+        //the operation trew something, so we pass it to the caller
         if(exc != null){
             throw exc!!
         }
@@ -261,9 +293,11 @@ actual class TCPClientSocket{
     }
 
     /**
-     * Perform a suspending read, the method will read n bytes ( 0 < n <= buffer.remaining() ) and update the cursor
+     * Perform a suspending read, the method will read n bytes ( 0 < n <= buffer.remaining() ) and update the cursor. If the peer
+     * closes the socket while reading, a `PeerClosedException` will be thrown. If the socket is manually closed while reading,
+     * either `NormalCloseException` or `ForceCloseException` will be thrown
      *
-     * @throws SokException
+     * @throws PeerClosedException
      * @throws SocketClosedException
      * @throws BufferOverflowException
      * @throws ConcurrentReadingException
@@ -288,9 +322,11 @@ actual class TCPClientSocket{
     }
 
     /**
-     * Perform a suspending read, the method will read n bytes ( minToRead < n <= buffer.remaining() ) and update the cursor
+     * Perform a suspending read, the method will read n bytes ( minToRead < n <= buffer.remaining() ) and update the cursor If the peer
+     * closes the socket while reading, a `PeerClosedException` will be thrown. If the socket is manually closed while reading,
+     * either `NormalCloseException` or `ForceCloseException` will be thrown
      *
-     * @throws SokException
+     * @throws PeerClosedException
      * @throws SocketClosedException
      * @throws BufferOverflowException
      * @throws ConcurrentReadingException
@@ -308,10 +344,11 @@ actual class TCPClientSocket{
 
         this.registerReadable {
             (buffer as JSMultiplatformBuffer)
-            //if we successfully read some byte and that then the read fails the read value wont be -1 if we add it directly
             if(buffer.hasRemaining()){
                 val tmp = this.readInto(buffer)
-                read += tmp
+                if(tmp != -1){
+                    read += tmp
+                }
                 tmp != -1 && read < minToRead && !this.isClosed
             }else{
                 false
@@ -326,7 +363,9 @@ actual class TCPClientSocket{
     /**
      * Perform a suspending write, the method will not return until all the data between buffer.cursor and buffer.limit are written.
      * The socket use an internal write queue, allowing multiple threads to concurrently write. Backpressure mechanisms
-     * should be implemented by the developer to avoid having too much data in the queue.
+     * should be implemented by the developer to avoid having too much data in the queue. If the peer
+     * closes the socket while reading, a `PeerClosedException` will be thrown. If the socket is manually closed while reading,
+     * either `NormalCloseException` or `ForceCloseException` will be thrown
      *
      * @throws SocketClosedException
      * @throws BufferUnderflowException
@@ -382,7 +421,6 @@ actual class TCPClientSocket{
                         }
                         Unit
                     }
-
                 }catch (e : dynamic){
                     val exc = SokException(e.toString())
                     request.deferred.completeExceptionally(exc)

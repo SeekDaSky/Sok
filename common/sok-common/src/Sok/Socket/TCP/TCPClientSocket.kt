@@ -14,9 +14,10 @@ import kotlinx.coroutines.Deferred
  * the accumulation of too many data.
  *
  * @property isClosed Keep track of the socket status
- * @property exceptionHandler Lambda that will be called when the socket closes. This happen when calling the `close` or
- * `forceClose` method, if the peer close the socket or if something wrong happen internally. Exception that does not affect
- * the socket state will not be received by this handler (exception in the `bulkRead` operation lambda for example)
+ * @property exceptionHandler Lambda that will be called when an exception resulting in the closing of the socket is thrown. This
+ * happen when calling the `close` or `forceClose` method, if the peer close the socket or if something wrong happen internally.
+ * Exception that does not affect the socket state will not be received by this handler (exception in the `bulkRead` operation
+ * lambda for example)
  */
 expect class TCPClientSocket{
 
@@ -28,13 +29,13 @@ expect class TCPClientSocket{
     /**
      * gracefully stops the socket. The method suspends as it waits for all the writing requests in the channel to be
      * executed before effectively closing the channel. Once the socket is closed a `NormalCloseException` will be passed
-     * to the exception handler
+     * to the exception handler and to any ongoing read method call
      */
     suspend fun close()
 
     /**
      * forcefully closes the channel without checking the writing request queue. Once the socket is closed a `ForceCloseException`
-     * will be passed to the exception handler
+     * will be passed to the exception handler and to any ongoing read method call
      */
     fun forceClose()
 
@@ -107,6 +108,7 @@ expect class TCPClientSocket{
      * @throws SocketClosedException
      * @throws BufferUnderflowException
      * @throws SokException
+     * @throws PeerClosedException
      *
      * @param buffer data to write
      *

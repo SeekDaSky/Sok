@@ -1,11 +1,13 @@
 package Sok.Socket.TCP
 
+import Sok.Exceptions.*
+
 /**
  * Class representing a listening socket. You can use it to perform accept() operation only.
  *
  * @property isClosed keep track of the socket state
- * @property exceptionHandler Lambda that will be called when a fatal exception is thrown within the library, for further information
- * look at the "Exception model" part of the documentation
+ * @property exceptionHandler Lambda that will be called when an exception resulting in the closing of the socket is thrown,
+ * for further information look at the "Exception model" part of the README
  */
 expect class TCPServerSocket{
 
@@ -16,6 +18,9 @@ expect class TCPServerSocket{
 
     /**
      * Accept a client socket. The method will suspend until there is a client to accept
+     *
+     * @throws NormalCloseException
+     * @throws SocketClosedException
      *
      * @return accepted socket
      */
