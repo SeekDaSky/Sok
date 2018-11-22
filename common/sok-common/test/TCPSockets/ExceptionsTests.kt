@@ -134,6 +134,7 @@ class ExceptionsTests {
             }
             channel.send(true)
             c1.join()
+            client1.close()
 
             //read
             val client2 = createTCPClientSocket(address,port)
@@ -150,6 +151,7 @@ class ExceptionsTests {
             }
             channel.send(true)
             c2.join()
+            client2.close()
 
             //read with min
             val client3 = createTCPClientSocket(address,port)
@@ -166,6 +168,7 @@ class ExceptionsTests {
             }
             channel.send(true)
             c3.join()
+            client3.close()
 
             //write
             val client4 = createTCPClientSocket(address,port)
@@ -195,6 +198,9 @@ class ExceptionsTests {
             }
             channel.send(true)
             c4.join()
+            //ffs Node.js
+            yield()
+            client4.close()
 
             job.join()
             channel.close()

@@ -187,21 +187,25 @@ actual class TCPClientSocket{
         if(buffer.remaining() <= 0) throw BufferOverflowException()
         if(!this.isReading.compareAndSet(false,true)) throw ConcurrentReadingException()
 
-        this.selectionKey.select(Interests.OP_READ)
+        try {
+            this.selectionKey.select(Interests.OP_READ)
 
-        buffer as NativeMultiplatformBuffer
+            buffer as NativeMultiplatformBuffer
+            val result = read(this.selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().toULong()).toInt()
 
-        val result = read(this.selectionKey.socket,buffer.nativePointer()+buffer.cursor,buffer.remaining().toULong()).toInt()
+            if(result == -1 || result == 0){
+                throw PeerClosedException()
+            }
 
-        if(result == -1 || result == 0){
-            throw PeerClosedException()
+            buffer.cursor = result
+
+            this.isReading.value = false
+
+            return result
+        }catch (e : Exception){
+            this.internalExceptionHandler.handleException(e)
+            throw e
         }
-
-        buffer.cursor = result
-
-        this.isReading.value = false
-
-        return result
     }
 
     /**

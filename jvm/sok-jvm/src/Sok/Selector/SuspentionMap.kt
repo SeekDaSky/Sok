@@ -32,6 +32,7 @@ internal class SuspentionMap(
 
         internal val exceptionHandler: CoroutineExceptionHandler
 ){
+    private val isClosed = atomic(false)
 
     val interest = atomic(0)
 
@@ -177,15 +178,17 @@ internal class SuspentionMap(
      * close the suspention map, thus cancelling any registered socket
      */
     fun close(exception : Throwable = PeerClosedException()){
-        this.selectionKey.cancel()
+        if(this.isClosed.compareAndSet(false,true)){
+            this.selectionKey.cancel()
 
-        this.OP_ACCEPT?.cancel(exception)
-        this.OP_READ?.cancel(exception)
-        this.OP_WRITE?.cancel(exception)
-        this.OP_CONNECT?.cancel(exception)
+            this.OP_ACCEPT?.cancel(exception)
+            this.OP_READ?.cancel(exception)
+            this.OP_WRITE?.cancel(exception)
+            this.OP_CONNECT?.cancel(exception)
 
-        if(this.selector.isInSelection){
-            this.selector.wakeup()
+            if(this.selector.isInSelection){
+                this.selector.wakeup()
+            }
         }
     }
 }

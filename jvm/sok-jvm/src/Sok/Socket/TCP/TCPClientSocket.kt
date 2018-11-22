@@ -215,18 +215,23 @@ actual class TCPClientSocket {
         if(buffer.remaining() <= 0) throw BufferOverflowException()
         if(this.suspentionMap.OP_READ != null) throw ConcurrentReadingException()
 
-        return withContext(Dispatchers.IO+this.internalExceptionHandler){
-            //wait for the selector to detect data then read
-            this@TCPClientSocket.suspentionMap.selectOnce(SelectionKey.OP_READ)
+        return withContext(Dispatchers.IO){
+            try {
+                //wait for the selector to detect data then read
+                this@TCPClientSocket.suspentionMap.selectOnce(SelectionKey.OP_READ)
 
-            (buffer as JVMMultiplatformBuffer)
-            val read = channel.read(buffer.nativeBuffer())
+                (buffer as JVMMultiplatformBuffer)
+                val read = channel.read(buffer.nativeBuffer())
 
-            if(read > 0){
-                buffer.cursor += read
-                return@withContext read
-            }else{
-                throw PeerClosedException()
+                if(read > 0){
+                    buffer.cursor += read
+                    return@withContext read
+                }else{
+                    throw PeerClosedException()
+                }
+            }catch (e : Exception){
+                this@TCPClientSocket.internalExceptionHandler.handleException(e)
+                throw e
             }
         }
 
