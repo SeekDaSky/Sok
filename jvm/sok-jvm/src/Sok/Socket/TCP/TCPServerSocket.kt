@@ -19,6 +19,8 @@ import java.nio.channels.ServerSocketChannel
  * Class representing a listening socket. You can use it to perform accept() operation only.
  *
  * @property isClosed keep track of the socket state
+ * @property exceptionHandler Lambda that will be called when an exception resulting in the closing of the socket is thrown,
+ * for further information look at the "Exception model" part of the README
  */
 actual class TCPServerSocket{
 
@@ -49,12 +51,12 @@ actual class TCPServerSocket{
      * Exception handler used to catch everything that comes from the internal coroutines
      */
     private val internalExceptionHandler = CoroutineExceptionHandler{_,e ->
-        //ignore peerClosedException
-        if(e is PeerClosedException) return@CoroutineExceptionHandler
+        if(e is CloseException && !this.isCloseExceptionSent.compareAndSet(false,true)) return@CoroutineExceptionHandler
 
         this.close()
         this.exceptionHandler(e)
     }
+    private val isCloseExceptionSent = atomic(false)
 
     /**
      * Start a listening socket on the given address (or alias) and port
@@ -89,14 +91,22 @@ actual class TCPServerSocket{
     /**
      * Accept a client socket. The method will suspend until there is a client to accept
      *
+     * @throws NormalCloseException
+     * @throws SocketClosedException
+     *
      * @return accepted socket
      */
     actual suspend fun accept() : TCPClientSocket {
         if(this.isClosed) throw SocketClosedException()
-        return withContext(Dispatchers.IO+this.internalExceptionHandler){
-            this@TCPServerSocket.suspentionMap.selectOnce(SelectionKey.OP_ACCEPT)
-            val channel = this@TCPServerSocket.channel.accept()
-            Sok.Socket.TCP.TCPClientSocket(channel, Selector.defaultSelectorPool)
+        return withContext(Dispatchers.IO){
+            try {
+                this@TCPServerSocket.suspentionMap.selectOnce(SelectionKey.OP_ACCEPT)
+                val channel = this@TCPServerSocket.channel.accept()
+                Sok.Socket.TCP.TCPClientSocket(channel, Selector.defaultSelectorPool)
+            }catch (e : Exception){
+                this@TCPServerSocket.internalExceptionHandler.handleException(e)
+                throw e
+            }
         }
     }
 
@@ -114,6 +124,13 @@ actual class TCPServerSocket{
     }
 }
 
+/**
+ * Start a listening socket on the given address (or alias) and port
+ *
+ * @param address IP to listen to
+ * @param port port to listen to
+ *
+ */
 actual suspend fun createTCPServerSocket(address: String,port: Int) : TCPServerSocket{
     return TCPServerSocket(address,port)
 }

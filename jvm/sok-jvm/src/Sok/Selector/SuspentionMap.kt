@@ -102,6 +102,7 @@ internal class SuspentionMap(
      */
     private suspend fun suspend(interest: Int){
 
+        //track if an exception was thrown during the registration coroutine
         var exc : Throwable? = null
         val job = this.selector.coroutineScope.launch {
             //we have to try catch the whole block or else the exception is brought back to the executor, and das not gud
@@ -129,13 +130,15 @@ internal class SuspentionMap(
             }
         }
 
+        //wakeup the selector to let the registration coroutine execute
         if(this.selector.isInSelection){
             this.selector.wakeup()
         }
 
+        //wait for it to finish
         job.join()
 
-
+        //if an exception was thrown, bring it back to the caller
         if(exc != null){
             throw exc!!
         }
@@ -175,7 +178,9 @@ internal class SuspentionMap(
     }
 
     /**
-     * close the suspention map, thus cancelling any registered socket
+     * close the suspention map, thus cancelling any registered socket.
+     *
+     * @param exception exception given to the continuations when cancelling
      */
     fun close(exception : Throwable = PeerClosedException()){
         if(this.isClosed.compareAndSet(false,true)){
@@ -186,6 +191,7 @@ internal class SuspentionMap(
             this.OP_WRITE?.cancel(exception)
             this.OP_CONNECT?.cancel(exception)
 
+            //as they run on the selector scope, wakeup the selector to let them execute
             if(this.selector.isInSelection){
                 this.selector.wakeup()
             }

@@ -95,7 +95,7 @@ actual class TCPClientSocket{
             this.internalExceptionHandler.handleException(exc)
         }
 
-        socket.on("error"){ e ->
+        socket.on("error"){ _ ->
             val exc = PeerClosedException()
             this.readingContinuation?.cancel(exc)
             this.internalExceptionHandler.handleException(exc)

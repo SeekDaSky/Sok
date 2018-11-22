@@ -98,10 +98,13 @@ class Selector {
      * to let possible registration coroutines run before the next selection cycle
      *
      * For performances purposes It is possible to register an interest for an undefined number of selection. In this case the "alwaysSelectXXX" properties of the
-     * SuspentionMap are used. In order to guaranty the atomicity of those types of selection an operation is registered and the selector will execute this lambda
+     * SuspentionMap are used. In order to guaranty the atomicity of those types of selection, an operation is registered and the selector will execute this lambda
      * synchronously before continuing its loop. Because of that the registered operation NEEDS to be non-suspending and non blocking as well as being not
      * computation-intensive. The operation will return true if the selector need to select again and will return false when the selector need to unregister the
      * interest and resume the coroutine.
+     *
+     * As those operation lambda are defined by the user, they may throw unexpected exceptions so we try catch it and resume the interest coroutine with the exception
+     * so the caller can process them
      */
     private suspend fun loop(){
         while (!this.isClosed){

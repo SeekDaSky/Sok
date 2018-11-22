@@ -21,8 +21,10 @@ import java.nio.channels.SocketChannel
  * the accumulation of too many data.
  *
  * @property isClosed Keep track of the socket status
- * @property exceptionHandler Lambda that will be called when a fatal exception is thrown within the library, for further information
- * look at the "Exception model" part of the documentation
+ * @property exceptionHandler Lambda that will be called when an exception resulting in the closing of the socket is thrown. This
+ * happen when calling the `close` or `forceClose` method, if the peer close the socket or if something wrong happen internally.
+ * Exception that does not affect the socket state will not be received by this handler (exception in the `bulkRead` operation
+ * lambda for example)
  */
 actual class TCPClientSocket {
 
@@ -102,7 +104,8 @@ actual class TCPClientSocket {
 
     /**
      * gracefully stops the socket. The method suspends as it waits for all the writing requests in the channel to be
-     * executed before effectively closing the channel
+     * executed before effectively closing the channel. Once the socket is closed a `NormalCloseException` will be passed
+     * to the exception handler and to any ongoing read method call
      */
     actual suspend fun close(){
         /** If some coroutines are launched in the same scope as the server scope
@@ -112,25 +115,30 @@ actual class TCPClientSocket {
          */
         yield()
 
+        //prevent multiple close call
         if(this._isClosed.compareAndSet(false,true)){
-            //wait for the write actor to consume everything in the channel
+            //wait for the write actor to consume everything in the channel and to send the NormalCloseException to the exception handler
             val deferred = CompletableDeferred<Boolean>()
             this.writeActor.send(CloseRequest(deferred))
             this.writeActor.close()
             deferred.await()
 
+            //the suspention map will cancel all ongoing primitives call and throw the given exception
             this.suspentionMap.close(NormalCloseException())
             this.channel.close()
         }
     }
 
     /**
-     * forcefully closes the channel without checking the writing request queue
+     * forcefully closes the channel without checking the writing request queue. Once the socket is closed a `ForceCloseException`
+     * will be passed to the exception handler and to any ongoing read method call
      */
     actual fun forceClose(){
+        //prevent multiple close call
         if(this._isClosed.compareAndSet(false,true)){
-            this.internalExceptionHandler.handleException(ForceCloseException())
             this@TCPClientSocket.writeActor.close()
+            //as we forcefully closed the write actor, we have to dispatch the ForceCloseException manually
+            this.internalExceptionHandler.handleException(ForceCloseException())
             this.suspentionMap.close(ForceCloseException())
             this.channel.close()
         }
@@ -146,7 +154,10 @@ actual class TCPClientSocket {
      * not use it between two iterations and must avoid leaking it to exterior coroutines/threads. each iteration will read
      * n bytes ( 0 < n <= buffer.limit ) and set the cursor to 0, the read parameter of the operation is the amount of data read.
      *
-     * @throws SokException
+     * If an exception is thrown in the operation lambda, the exception will not close the socket and will not be received by the
+     * exception handler, it will instead be thrown directly by the method
+     *
+     * @throws PeerClosedException
      * @throws SocketClosedException
      * @throws BufferOverflowException
      * @throws ConcurrentReadingException
@@ -154,7 +165,6 @@ actual class TCPClientSocket {
      *
      * @param buffer buffer used to store the data read. the cursor will be reset after each iteration. The limit of the buffer remains
      * untouched so the developer can chose the amout of data to read.
-     *
      * @param operation lambda called after each read event. The first argument will be the buffer and the second the amount of data read
      *
      * @return Total number of byte read
@@ -167,8 +177,8 @@ actual class TCPClientSocket {
         (buffer as JVMMultiplatformBuffer)
         var read : Long = 0
 
+        //track if the operation threw something
         var exceptionFromOperation : Throwable? = null
-
         this.suspentionMap.selectAlways(SelectionKey.OP_READ){
             buffer.cursor = 0
 
@@ -191,6 +201,7 @@ actual class TCPClientSocket {
             }
         }
 
+        //pass the exception thrown by the operation
         if(exceptionFromOperation != null){
             throw exceptionFromOperation!!
         }
@@ -199,9 +210,11 @@ actual class TCPClientSocket {
     }
 
     /**
-     * Perform a suspending read, the method will read n bytes ( 0 < n <= buffer.remaining() ) and update the cursor
+     * Perform a suspending read, the method will read n bytes ( 0 < n <= buffer.remaining() ) and update the cursor. If the peer
+     * closes the socket while reading, a `PeerClosedException` will be thrown. If the socket is manually closed while reading,
+     * either `NormalCloseException` or `ForceCloseException` will be thrown
      *
-     * @throws SokException
+     * @throws PeerClosedException
      * @throws SocketClosedException
      * @throws BufferOverflowException
      * @throws ConcurrentReadingException
@@ -215,7 +228,7 @@ actual class TCPClientSocket {
         if(buffer.remaining() <= 0) throw BufferOverflowException()
         if(this.suspentionMap.OP_READ != null) throw ConcurrentReadingException()
 
-        return withContext(Dispatchers.IO){
+        return withContext(this.coroutineScope.coroutineContext){
             try {
                 //wait for the selector to detect data then read
                 this@TCPClientSocket.suspentionMap.selectOnce(SelectionKey.OP_READ)
@@ -238,9 +251,11 @@ actual class TCPClientSocket {
     }
 
     /**
-     * Perform a suspending read, the method will read n bytes ( minToRead < n <= buffer.remaining() ) and update the cursor
+     * Perform a suspending read, the method will read n bytes ( minToRead < n <= buffer.remaining() ) and update the cursor If the peer
+     * closes the socket while reading, a `PeerClosedException` will be thrown. If the socket is manually closed while reading,
+     * either `NormalCloseException` or `ForceCloseException` will be thrown
      *
-     * @throws SokException
+     * @throws PeerClosedException
      * @throws SocketClosedException
      * @throws BufferOverflowException
      * @throws ConcurrentReadingException
@@ -277,11 +292,14 @@ actual class TCPClientSocket {
     /**
      * Perform a suspending write, the method will not return until all the data between buffer.cursor and buffer.limit are written.
      * The socket use an internal write queue, allowing multiple threads to concurrently write. Backpressure mechanisms
-     * should be implemented by the developer to avoid having too much data in the queue.
+     * should be implemented by the developer to avoid having too much data in the queue. If the peer
+     * closes the socket while reading, a `PeerClosedException` will be thrown. If the socket is manually closed while reading,
+     * either `NormalCloseException` or `ForceCloseException` will be thrown
      *
      * @throws SocketClosedException
      * @throws BufferUnderflowException
      * @throws SokException
+     * @throws PeerClosedException
      *
      * @param buffer data to write
      *
