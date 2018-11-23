@@ -231,7 +231,7 @@ class BufferPool(val maximumNumberOfBuffer : Int, val bufferSize : Int) {
 
 ## Exception model
 
-`Client` and `Server` classes both have an `exceptionHandler` property containing a lambda that will be called when an `Exeption` **resulting in the closing of the socket** is thrown. This handler useful to have a centralized way of tracking the state of the socket.
+`Client` and `Server` classes both have an `exceptionHandler` property containing a lambda that will be called when an `Exeption` **resulting in the closing of the socket** is thrown. This handler is useful to have a centralized way of tracking the state of the socket.
 
 All the exceptions class that Sok can throw are referenced [here](https://github.com/SeekDaSky/Sok/blob/master/common/sok-common/src/Sok/Exceptions/Exceptions.kt).
 
