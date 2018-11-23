@@ -80,6 +80,7 @@ internal class SelectionKey(val socket : Int,
                 }
 
             }
+        //when an exception is thrown we want the socket exception handler to know and we also want the exception to be thrown back to the caller
         }catch (e : Exception){
             this.exceptionHandler.handleException(e)
             throw e
@@ -111,6 +112,7 @@ internal class SelectionKey(val socket : Int,
                 }
 
             }
+        //when an exception is thrown we want the socket exception handler to know and we also want the exception to be thrown back to the caller
         }catch (e : Exception){
             this.exceptionHandler.handleException(e)
             throw e
@@ -139,6 +141,8 @@ internal class SelectionKey(val socket : Int,
 
     /**
      * Close the selection key, cancelling every suspention registered and unregistering from the selector
+     *
+     * @param exception Exception used to cancel the coninuation
      */
     fun close(exception : Exception = SocketClosedException()){
         if(this.isClosed.compareAndSet(false,true)){
@@ -146,7 +150,7 @@ internal class SelectionKey(val socket : Int,
             this.selector.unregister(this)
 
             this.selector
-            //resume all coroutines
+            //cancel all coroutines
             this.OP_WRITE?.cancel(exception)
             this.OP_READ?.cancel(exception)
 

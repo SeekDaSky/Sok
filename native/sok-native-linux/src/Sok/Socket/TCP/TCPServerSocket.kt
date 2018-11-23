@@ -13,6 +13,8 @@ import kotlinx.cinterop.cValuesOf
  * Class representing a listening socket. You can use it to perform accept() operation only.
  *
  * @property isClosed keep track of the socket state
+ * @property exceptionHandler Lambda that will be called when an exception resulting in the closing of the socket is thrown,
+ * for further information look at the "Exception model" part of the README
  */
 actual class TCPServerSocket{
 
@@ -51,7 +53,7 @@ actual class TCPServerSocket{
      * @param port port to listen to
      *
      */
-    constructor(address : String, port : Int){
+    internal constructor(address : String, port : Int){
 
         var socket : Int = 0
 
@@ -117,6 +119,9 @@ actual class TCPServerSocket{
     /**
      * Accept a client socket. The method will suspend until there is a client to accept
      *
+     * @throws NormalCloseException
+     * @throws SocketClosedException
+     *
      * @return accepted socket
      */
     actual suspend fun accept() : TCPClientSocket {
@@ -140,6 +145,13 @@ actual class TCPServerSocket{
     }
 }
 
+/**
+ * Start a listening socket on the given address (or alias) and port
+ *
+ * @param address IP to listen to
+ * @param port port to listen to
+ *
+ */
 actual suspend fun createTCPServerSocket(address : String, port : Int) : TCPServerSocket{
     return TCPServerSocket(address,port)
 }

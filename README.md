@@ -108,13 +108,13 @@ repositories {
 
 dependencies {
     // For common source
-    implementation 'seekdasky.sok:sok-common:0.12'
+    implementation 'seekdasky.sok:sok-common:0.20'
     // For JVM
-    implementation 'seekdasky.sok:sok-jvm:0.12'
+    implementation 'seekdasky.sok:sok-jvm:0.20'
     // For JS
-    implementation 'seekdasky.sok:sok-js:0.12'
+    implementation 'seekdasky.sok:sok-js:0.20'
     // For Native (please not that you must use Gradle 4.7)
-    implementation 'seekdasky.sok:sok-native-linux:0.12'
+    implementation 'seekdasky.sok:sok-native-linux:0.20'
 }
 ```
 

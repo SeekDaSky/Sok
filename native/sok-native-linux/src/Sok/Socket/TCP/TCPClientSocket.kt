@@ -20,8 +20,10 @@ import Sok.Exceptions.OptionNotSupportedException
  * the accumulation of too many data.
  *
  * @property isClosed Keep track of the socket status
- * @property exceptionHandler Lambda that will be called when a fatal exception is thrown within the library, for further information
- * look at the "Exception model" part of the documentation
+ * @property exceptionHandler Lambda that will be called when an exception resulting in the closing of the socket is thrown. This
+ * happen when calling the `close` or `forceClose` method, if the peer close the socket or if something wrong happen internally.
+ * Exception that does not affect the socket state will not be received by this handler (exception in the `bulkRead` operation
+ * lambda for example)
  */
 actual class TCPClientSocket{
 
@@ -71,7 +73,7 @@ actual class TCPClientSocket{
      * @param socket file descriptor of the socket
      * @param selector Selector managing the socket
      */
-    constructor(socket : Int,selector : Selector){
+    internal constructor(socket : Int,selector : Selector){
         this.selectionKey = selector.register(socket)
         this.selectionKey.exceptionHandler = this.internalExceptionHandler
         this.writeActor = this.createWriteActor(this.selectionKey, this.getOption<Int>(Options.SO_SNDBUF).value)
@@ -91,15 +93,15 @@ actual class TCPClientSocket{
 
     /**
      * gracefully stops the socket. The method suspends as it waits for all the writing requests in the channel to be
-     * executed before effectively closing the channel
+     * executed before effectively closing the channel. Once the socket is closed a `NormalCloseException` will be passed
+     * to the exception handler and to any ongoing read method call
      */
     actual suspend fun close(){
         /**
          * Channels are fair, coroutine dispatching is also fair, but consider the "Client wait for the end of the send queue before close"
          * test case, the buffers are all written asynchronously, thus launching coroutines but not suspending. In this case the execution will continue
          * until the close() call, it's only when we do that that we suspend and let all the launched coroutine to be dispatched. We need to
-         * yield() before doing anything else to let the possibly not dispatched coroutine to be so. If you wonder how much time I spent on this
-         * bug, assume that it's a lot
+         * yield() before doing anything else to let the possibly not dispatched coroutine to be so.
          */
         yield()
 
@@ -113,7 +115,8 @@ actual class TCPClientSocket{
     }
 
     /**
-     * forcefully closes the channel without checking the writing request queue
+     * forcefully closes the channel without checking the writing request queue. Once the socket is closed a `ForceCloseException`
+     * will be passed to the exception handler and to any ongoing read method call
      */
     actual fun forceClose(){
         if(this._isClosed.compareAndSet(false,true)){
@@ -133,9 +136,17 @@ actual class TCPClientSocket{
      * not use it between two iterations and must avoid leaking it to exterior coroutines/threads. each iteration will read
      * n bytes ( 0 < n <= buffer.limit ) and set the cursor to 0, the read parameter of the operation is the amount of data read.
      *
+     * If an exception is thrown in the operation lambda, the exception will not close the socket and will not be received by the
+     * exception handler, it will instead be thrown directly by the method
+     *
+     * @throws PeerClosedException
+     * @throws SocketClosedException
+     * @throws BufferOverflowException
+     * @throws ConcurrentReadingException
+
+     *
      * @param buffer buffer used to store the data read. the cursor will be reset after each iteration. The limit of the buffer remains
      * untouched so the developer can chose the amout of data to read.
-     *
      * @param operation lambda called after each read event. The first argument will be the buffer and the second the amount of data read
      *
      * @return Total number of byte read
@@ -148,6 +159,7 @@ actual class TCPClientSocket{
         buffer as NativeMultiplatformBuffer
         var read : Long = 0
 
+        //store the exception thrown by the operation lambda
         var exc : Throwable? = null
         this.selectionKey.selectAlways(Interests.OP_READ){
 
@@ -167,6 +179,7 @@ actual class TCPClientSocket{
             }
         }
 
+        //throw the operation lambda exception back to the caller
         if(exc != null){
             throw exc!!
         }
@@ -176,7 +189,14 @@ actual class TCPClientSocket{
     }
 
     /**
-     * Perform a suspending read, the method will read n bytes ( 0 < n <= buffer.remaining() ) and update the cursor
+     * Perform a suspending read, the method will read n bytes ( 0 < n <= buffer.remaining() ) and update the cursor. If the peer
+     * closes the socket while reading, a `PeerClosedException` will be thrown. If the socket is manually closed while reading,
+     * either `NormalCloseException` or `ForceCloseException` will be thrown
+     *
+     * @throws PeerClosedException
+     * @throws SocketClosedException
+     * @throws BufferOverflowException
+     * @throws ConcurrentReadingException
      *
      * @param buffer buffer used to store the data read
      *
@@ -209,7 +229,14 @@ actual class TCPClientSocket{
     }
 
     /**
-     * Perform a suspending read, the method will read n bytes ( minToRead < n <= buffer.remaining() ) and update the cursor
+     * Perform a suspending read, the method will read n bytes ( minToRead < n <= buffer.remaining() ) and update the cursor If the peer
+     * closes the socket while reading, a `PeerClosedException` will be thrown. If the socket is manually closed while reading,
+     * either `NormalCloseException` or `ForceCloseException` will be thrown
+     *
+     * @throws PeerClosedException
+     * @throws SocketClosedException
+     * @throws BufferOverflowException
+     * @throws ConcurrentReadingException
      *
      * @param buffer buffer used to store the data read
      *
@@ -244,7 +271,14 @@ actual class TCPClientSocket{
     /**
      * Perform a suspending write, the method will not return until all the data between buffer.cursor and buffer.limit are written.
      * The socket use an internal write queue, allowing multiple threads to concurrently write. Backpressure mechanisms
-     * should be implemented by the developer to avoid having too much data in the queue.
+     * should be implemented by the developer to avoid having too much data in the queue. If the peer
+     * closes the socket while reading, a `PeerClosedException` will be thrown. If the socket is manually closed while reading,
+     * either `NormalCloseException` or `ForceCloseException` will be thrown
+     *
+     * @throws SocketClosedException
+     * @throws BufferUnderflowException
+     * @throws SokException
+     * @throws PeerClosedException
      *
      * @param buffer data to write
      *
