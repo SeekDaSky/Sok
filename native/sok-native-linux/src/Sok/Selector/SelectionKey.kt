@@ -1,9 +1,11 @@
 package Sok.Selector
 
+import Sok.Exceptions.*
 import platform.posix.*
 import kotlinx.atomicfu.atomic
 import kotlin.experimental.or
 import kotlin.coroutines.*
+import kotlinx.coroutines.*
 
 /**
  * A `SelectionKey` is generated when a socket is registered to a selector. It is used to perform the suspention
@@ -16,7 +18,8 @@ import kotlin.coroutines.*
  * @constructor return a SelectionKey handling the socket
  */
 internal class SelectionKey(val socket : Int,
-                   val selector : Selector){
+                            val selector : Selector,
+                            var exceptionHandler : CoroutineExceptionHandler = CoroutineExceptionHandler{_,_ -> }){
 
     //is a read event registred
     private val readRegistered = atomic(false)
@@ -27,12 +30,12 @@ internal class SelectionKey(val socket : Int,
     private val isClosed = atomic(false)
 
     //continuation to resume when a write event comes
-    var OP_WRITE : Continuation<Boolean>? = null
+    var OP_WRITE : CancellableContinuation<Boolean>? = null
     //object containing the operation to call in case of a SelectAlways
     var alwaysSelectWrite : SelectAlways? = null
 
     //continuation to resume when a read event comes
-    var OP_READ : Continuation<Boolean>? = null
+    var OP_READ : CancellableContinuation<Boolean>? = null
     //object containing the operation to call in case of a SelectAlways
     var alwaysSelectRead : SelectAlways? = null
 
@@ -63,18 +66,24 @@ internal class SelectionKey(val socket : Int,
     suspend fun select(interests: Interests){
         require(!this.isClosed.value)
 
-        suspendCoroutine<Boolean>{
-            when(interests){
-                Interests.OP_READ -> {
-                    this.OP_READ = it
-                    this.readRegistered.value = true
+        try {
+            suspendCancellableCoroutine<Boolean>{
+                when(interests){
+                    Interests.OP_READ -> {
+                        this.OP_READ = it
+                        this.readRegistered.value = true
+                    }
+                    Interests.OP_WRITE ->{
+                        this.OP_WRITE = it
+                        this.writeRegistered.value = true
+                    }
                 }
-                Interests.OP_WRITE ->{
-                    this.OP_WRITE = it
-                    this.writeRegistered.value = true
-                }
-            }
 
+            }
+        //when an exception is thrown we want the socket exception handler to know and we also want the exception to be thrown back to the caller
+        }catch (e : Exception){
+            this.exceptionHandler.handleException(e)
+            throw e
         }
     }
 
@@ -87,20 +96,26 @@ internal class SelectionKey(val socket : Int,
     suspend fun selectAlways(interests: Interests, operation : () -> Boolean){
         require(!this.isClosed.value)
 
-        suspendCoroutine<Boolean>{
-            when(interests){
-                Interests.OP_READ -> {
-                    this.OP_READ = it
-                    this.alwaysSelectRead = SelectAlways(operation)
-                    this.readRegistered.value = true
+        try {
+            suspendCancellableCoroutine<Boolean>{
+                when(interests){
+                    Interests.OP_READ -> {
+                        this.OP_READ = it
+                        this.alwaysSelectRead = SelectAlways(operation)
+                        this.readRegistered.value = true
+                    }
+                    Interests.OP_WRITE ->{
+                        this.OP_WRITE = it
+                        this.alwaysSelectWrite = SelectAlways(operation)
+                        this.writeRegistered.value = true
+                    }
                 }
-                Interests.OP_WRITE ->{
-                    this.OP_WRITE = it
-                    this.alwaysSelectWrite = SelectAlways(operation)
-                    this.writeRegistered.value = true
-                }
-            }
 
+            }
+        //when an exception is thrown we want the socket exception handler to know and we also want the exception to be thrown back to the caller
+        }catch (e : Exception){
+            this.exceptionHandler.handleException(e)
+            throw e
         }
     }
 
@@ -126,19 +141,22 @@ internal class SelectionKey(val socket : Int,
 
     /**
      * Close the selection key, cancelling every suspention registered and unregistering from the selector
+     *
+     * @param exception Exception used to cancel the coninuation
      */
-    fun close(){
+    fun close(exception : Exception = SocketClosedException()){
         if(this.isClosed.compareAndSet(false,true)){
-            //resume all coroutines
-            this.OP_WRITE?.resumeWithException(Exception("Socket was closed by an external caller"))
-            this.OP_READ?.resumeWithException(Exception("Socket was closed by an external caller"))
+            //unregister from the selector
+            this.selector.unregister(this)
+
+            this.selector
+            //cancel all coroutines
+            this.OP_WRITE?.cancel(exception)
+            this.OP_READ?.cancel(exception)
 
             //unregister every interest
             this.unsafeUnregister(Interests.OP_WRITE)
             this.unsafeUnregister(Interests.OP_READ)
-
-            //unregister from the selector
-            this.selector.unregister(this)
 
             //close native socket
             close(this.socket)

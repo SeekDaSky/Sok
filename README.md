@@ -4,15 +4,20 @@
 
 ## Introduction
 
- Sok is a multiplatform socket managment library, distributed under the MIT licence, that aims to be simple and safe to use. It is fully [coroutine-friendly](https://kotlinlang.org/docs/reference/coroutines-overview.html) and asynchronous with all its primitive being suspending functions. It allows the developper to use I/O code inside coroutines safely without any risk of blocking anything.
+Sok is a multiplatform socket management library, distributed under the MIT licence, that aims to be simple and safe to use. It is fully [coroutine-friendly](https://kotlinlang.org/docs/reference/coroutines-overview.html) and asynchronous with all its primitive being suspending functions. It allows the developer to use I/O code inside coroutines safely without any risk of blocking anything.
 
- For now the supported platforms are:
+For now the supported platforms are:
 
-- JVM >= 7 (Android not tested but it should theoratically work)
+- JVM >= 8 (JVM 7 and Android not tested but it should theoretically work)
 - Node.js >=  9.4.0 (lower versions may work, not tested)
 - Native - Linux x64
 
- There is no plan to support Windows or OSX/iOS platforms for now
+There is no plan to support Windows or OSX/iOS platforms for now
+
+Your project should meet the following requirement for Sok to work:
+
+- Kotlin 1.3
+- Gradle 4.7 (for Native projects)
 
  **Sok is still in its early stage of development, there is still a lot to be done and you will find the [list here](#plans-for-the-future)** 
 
@@ -38,7 +43,9 @@
 
 [VI - The Buffer class](#the-buffer-class)
 
-[VII - Platform specific behaviours](#platform-specific-behaviours)
+[VII - Exception model](#exception-model)
+
+[VIII - Platform specific behaviours](#platform-specific-behaviours)
 
 ​	[1 - Java](#java)
 
@@ -46,13 +53,13 @@
 
 ​	[3 - JS](#js)
 
-[VIII - Plans for the future](#plans-for-the-future)
+[IX - Plans for the future](#plans-for-the-future)
 
-[IX - Contributing](#contributing)
+[X - Contributing](#contributing)
 
 ## Overview
 
- Sok can manage server and client sockets, it is multithreaded on JVM and single-threaded on Native and JS. All platforms implement the same interface. There is a few platform-specific behaviour that [are listed here](#platform-specific-behaviours). The behaviour of the library is a quite similar to the [Java NIO technology](https://en.wikipedia.org/wiki/Non-blocking_I/O_(Java)):
+ Sok can manage server and client sockets, it is multi-threaded on JVM and single-threaded on Native and JS. All platforms implement the same interface. There is a few known platform-specific behavior that [are listed here](#platform-specific-behaviours). The behavior of the library is a quite similar to the [Java NIO technology](https://en.wikipedia.org/wiki/Non-blocking_I/O_(Java)):
 
 - Everything is buffer based
 - I/O operations update the buffer cursor and respect the buffer limit
@@ -60,15 +67,15 @@
 An echo server socket code looks like this:
 
 ```kotlin
-fun main(args: Array<String>) {
+fun main(args: Array<String>) = runBlocking {
     //create the server socket
-    val server = TCPServerSocket("localhost", 9999)
+    val server = createTCPServerSocket("localhost", 9999)
     //accept clients forever
     while(!server.isClosed) {
         //suspending accept
         val socket = server.accept()
         //launch a new coroutine to let the main loop continue
-        GlobalScope.launch {
+        launch {
             //allocate a new buffer
             val buffer = allocMultiplatformBuffer(1024)
             //loop forever again
@@ -81,7 +88,7 @@ fun main(args: Array<String>) {
                 buffer.cursor = 0
                 socket.write(buffer)
             }
-            //destroy the buffer, this operation is optional on JVM and JS
+            //destroy the buffer (optional on JVM and JS)
             buffer.destroy()
         }
     }
@@ -90,7 +97,7 @@ fun main(args: Array<String>) {
 
 ## Installation
 
- Sok is hosted on bintray. Simply add Sok as a dependency and you are good to go
+ Sok is hosted on Bintray. Simply add Sok as a dependency and you are good to go
 
 Gradle:
 
@@ -101,16 +108,13 @@ repositories {
 
 dependencies {
     // For common source
-    compile 'seekdasky.sok:sok-common:0.12'
-    
+    implementation 'seekdasky.sok:sok-common:0.20'
     // For JVM
-    compile 'seekdasky.sok:sok-jvm:0.12'
-    
+    implementation 'seekdasky.sok:sok-jvm:0.20'
     // For JS
-    compile 'seekdasky.sok:sok-js:0.12'
-    
+    implementation 'seekdasky.sok:sok-js:0.20'
     // For Native (please not that you must use Gradle 4.7)
-    compile 'seekdasky.sok:sok-native-linux:0.12'
+    implementation 'seekdasky.sok:sok-native-linux:0.20'
 }
 ```
 
@@ -118,46 +122,23 @@ dependencies {
 
 ## The Server class
 
- The server class allows the developper to create and manage a listening socket. It's primitives are quite straightforward.
+You can create a new listening socket with the top-level function `createTCPServerSocket`
 
 ```kotlin
-class TCPServerSocket{
-
-    /** state of the socket */
-    var isClosed : Boolean
-        private set
-
-    /**
-     * Start a listening socket on the given address (or alias) and port
-     */
-    constructor(address : String, port : Int)
-
-    /**
-     * Accept a client socket. The method will suspend until there is a client to accept
-     */
-    suspend fun accept() : TCPClientSocket
-
-    /**
-     * handler called when the socket close (expectedly or not)
-     */
-    fun bindCloseHandler(handler : () -> Unit)
-
-    /**
-     * close the server socket
-     */
-    fun close()
-}
+suspend fun createTCPServerSocket(address : String, port : Int) : TCPServerSocket
 ```
+
+The TCPServerSocket class only have two interesting primitives: `accept` and `close`
 
 ## The Client class
 
- The client class allows the developper to perform I/O actions on socket. This class is created when either accepting a client with the Server class or with the `createTCPClientSOcket` top-level function:
+ The client class allows the developer to perform I/O actions on socket. This class is created when either accepting a client with the Server class method `accept` or with the `createTCPClientSocket` top-level function:
 
 ```kotlin
 suspend fun createTCPClientSocket(address : String, port : Int ) : TCPClientSocket
 ```
 
- Like the Server class, you can bind a close handler that will be called when the socket is closed (expectedly or not). When closing a client socket you can either call `close` that will wait for any ongoing write operation to finish or `forceClose` that will close everything instantly and interupt any write operation.
+ When closing a client socket you can either call `close` that will wait for any ongoing write operation to finish or `forceClose` that will close everything instantly and interrupt any write operation.
 
  The three I/O primitives are:
 
@@ -171,7 +152,7 @@ suspend fun read(buffer: MultiplatformBuffer) : Int
 suspend fun read(buffer: MultiplatformBuffer, minToRead : Int) : Int
 ```
 
- Both methods will return -1 if an error occured and the socket will be closed, calling the close handler. Those methods are not thread safe and only one can be performed at a time. Data will be read from the current buffer cursor position until the limit of the buffer. Without a `minToRead`parameter given, the minimum amount of data is 1 byte.
+ Both methods are not thread safe and only one can be called at a time. Data will be read from the current buffer cursor position until the limit of the buffer. Without a `minToRead`parameter given, the minimum amount of data is 1 byte.
 
  Once the read operation is performed, the cursor of the buffer will be incremented by the number of byte read and the method will return that number.
 
@@ -183,7 +164,7 @@ suspend fun read(buffer: MultiplatformBuffer, minToRead : Int) : Int
 suspend fun write(buffer: MultiplatformBuffer) : Boolean
 ```
 
- Unlike read methods, a write operation is thread safe and multiple call can be performed concurrently. A write is atomic, meaning that the method will not return until all the data between the cursor and the limit are written. the client class will process each given buffer one by one in order.
+ Unlike read methods, a write operation is thread safe and multiple call can be performed concurrently. A write is atomic, meaning that the method will not return until all the data between the cursor and the limit are written or until an exception happen (`PeerClosedException`). The client class will process each given buffer one by one in order. The developer should implement a back-pressure mechanism in order to reduce the amount of data stored in the queue.
 
 ### BulkRead
 
@@ -193,9 +174,9 @@ suspend fun write(buffer: MultiplatformBuffer) : Boolean
 suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer, read : Int) -> Boolean) : Long
 ```
 
- The method will suspend the calling coroutine and execute the `operation`every time there is data to be read. The `operation`will take as parameter the buffer containing the data, the amount of data and return a `true` if the loop should continue, `false` if the method should return. the `operation` MUST not be computation intesive or blocking as Sok execute it synchronously, thus blocking other sockets while doing so.
+ The method will suspend the calling coroutine and execute the `operation`every time there is data to be read. The `operation`will take as parameter the buffer containing the data (with its cursor set to 0) and the amount of data, the operation must return `true` if the loop should continue, `false` if the method should return. the `operation` MUST not be computation intensive or blocking as Sok execute it synchronously, thus blocking other sockets while doing so.
 
- The use case imagined for this method is the follwing:
+ The use case imagined for this method is the following:
 
 ```kotlin
 while(!socket.isClosed){
@@ -218,7 +199,7 @@ while(!socket.isClosed){
 
 ## The Buffer class
 
- The Buffer class is the heart of any I/O operation. It's behavior is similar to the [Java NIO ByteBuffer](https://docs.oracle.com/javase/7/docs/api/java/nio/ByteBuffer.html). it also include primitives to read unsigned types. Right now as Sok uses Kotlin 1.2.70 unsigned types are represented with bigger types (an unsigned Byte is a Short, an unsigned Short is an Int, etc...) but as soon as Kotlin 1.3 comes out the Buffer class will use native unsigned types.
+ The Buffer class is the heart of any I/O operation. It's behavior is similar to the [Java NIO ByteBuffer](https://docs.oracle.com/javase/7/docs/api/java/nio/ByteBuffer.html). it also include primitives to read unsigned types.  There is currently no method supporting `float` and `double` types and sothey must be transferred as strings.
 
  A Buffer can be created either by allocating memory or using an existing ByteArray as a back buffer, thus avoiding copy.
 
@@ -228,7 +209,7 @@ fun allocMultiplatformBuffer(size :Int) : MultiplatformBuffer
 fun wrapMultiplatformBuffer(array : ByteArray) : MultiplatformBuffer
 ```
 
- On Native platforms it is important to destroy the buffer using the `destroy()` method when it is not needed anymore in order to free memory, note that if you destroy a buffer that use a back buffer, the ByteBuffer class will simply `unpin()` the array.
+ On Native platforms it is important to destroy the buffer using the `destroy()` method when it is not needed anymore in order to free memory, note that on Kotlin/Native if you destroy a buffer that wraps a ByteArray, the ByteBuffer class will simply `unpin()` the array.
 
  Sok also provide a BufferPool class, usefull to recycle buffers and reduce garbage collection pressure
 
@@ -248,6 +229,20 @@ class BufferPool(val maximumNumberOfBuffer : Int, val bufferSize : Int) {
 }
 ```
 
+## Exception model
+
+`Client` and `Server` classes both have an `exceptionHandler` property containing a lambda that will be called when an `Exeption` **resulting in the closing of the socket** is thrown. This handler useful to have a centralized way of tracking the state of the socket.
+
+All the exceptions class that Sok can throw are referenced [here](https://github.com/SeekDaSky/Sok/blob/master/common/sok-common/src/Sok/Exceptions/Exceptions.kt).
+
+If something is wrong, every primitive (`accept`,`read`,`bulkRead`,`write`) will throw the same exception as the one passed to the exception handler.
+
+Closing the socket using `close` and `forceClose` will result in a `NormalCloseException` or a `ForceCloseException` to be thrown. Only the first `CloseException` will be sent to the exception handler, meaning that if you call `close` on a socket after the peer closed it (`PeerClosedException`) there won't be any `NormalCloseException` thrown.
+
+if a call is made to a primitive of a closed socket a `SocketClosedException` will be thrown.
+
+When using `bulkRead`, if the passed `operation` lambda throw an exception, the socket won't be closed thus the exception won't be send to the exception handler but the exception will be thrown by the `bulkRead` method.
+
 ## Platform specific behaviours
 
  As Multiplatform and Coroutines are still experimental and that each platform have its own paradigm, making a library that have the same exact behaviour is hard. this section is dedicated to the behaviours that are not (yet) fixable and that the developer should keep in mind.
@@ -258,7 +253,7 @@ class BufferPool(val maximumNumberOfBuffer : Int, val bufferSize : Int) {
 
 ### Native
 
- Because the `kotlinx.coroutines` library does not support multithreading on native platform yet, Sok is single threaded. Because of this you MUST have a running event loop in your kotlin program, to acheive this the simplest way is making `runBlocking` the first statement of your `main` function. In addition to this you might want to bind the Sok Selector class scope to this event loop, this is optional but recomended if you don't want to prevent `runBlocking` from exiting thus closing the event loop. You can read more on Structured concurrency [here](https://medium.com/@elizarov/structured-concurrency-722d765aa952), and `kotlinx.coroutines` plans for multithreading [here](https://github.com/Kotlin/kotlinx.coroutines/issues/462)
+ Because the `kotlinx.coroutines` library does not support multithreading on native platform yet, Sok is single threaded. Because of this you MUST have a running event loop in your kotlin program, to acheive this the simplest way is making `runBlocking` the first statement of your `main` function. In addition to this you might want to bind the Sok  `Selector` class scope to this event loop, this is optional but recommended if you want to prevent `runBlocking` from returning, thus closing the event loop. You can read more on Structured concurrency [here](https://medium.com/@elizarov/structured-concurrency-722d765aa952), and `kotlinx.coroutines` plans for multi-threading [here](https://github.com/Kotlin/kotlinx.coroutines/issues/462)
 
  Example:
 
@@ -273,19 +268,22 @@ fun main(args: Array<String>) = runBlocking{
 
 ### JS
 
- For now the JS implementation is really slow and you probably don't want to use this in production at all, and because this platform does not support `runBlocking` it makes it a bit trickier to use it on multiplatform projects. Aside from that there is no known issues with the paltform behaviour.
+ For now the JS implementation is really slow and you probably don't want to use this in production at all. Because this platform does not support `runBlocking` it makes it a bit trickier to use it on multiplatform projects.
+
+The only known behavior difference is that the `write` method can't throw a `PeerClosedException` because Node.js does not give any information about the success of the write operation.
 
 ## Plans for the future
 
- Sok is not feature complete or stable yet, a lot is to be done and feedback on the API is welcome. The plans for Sok are:
+ Sok is not feature complete or stable yet, a lot is to be done and feedback on the API is welcome. The plans for the future are:
 
 - ~~Migrate everything to Kotlin 1.3~~
 - ~~Publish the library on Bintray~~
 - Enhance the test suite
-- Think of a real exception model
+- ~~Think of a real exception model~~
 - ~~Implement a way to set/get socket options~~
 - Implement UDP sockets
 - Fix JS performances (though I don't have any idea how)
+- Support Android target
 
 ## Contributing
 

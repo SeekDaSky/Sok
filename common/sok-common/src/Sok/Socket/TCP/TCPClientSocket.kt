@@ -1,8 +1,11 @@
 package Sok.Socket.TCP
 
 import Sok.Buffer.MultiplatformBuffer
+import Sok.Exceptions.*
 import Sok.Socket.Options.Options
 import Sok.Socket.Options.SocketOption
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Deferred
 
 /**
@@ -11,27 +14,28 @@ import kotlinx.coroutines.Deferred
  * the accumulation of too many data.
  *
  * @property isClosed Keep track of the socket status
+ * @property exceptionHandler Lambda that will be called when an exception resulting in the closing of the socket is thrown. This
+ * happen when calling the `close` or `forceClose` method, if the peer close the socket or if something wrong happen internally.
+ * Exception that does not affect the socket state will not be received by this handler (exception in the `bulkRead` operation
+ * lambda for example)
  */
 expect class TCPClientSocket{
 
     var isClosed : Boolean
         private set
 
-    /**
-     * handler called when the socket close (expectantly or not)
-     *
-     * @param handler lambda called when the socket is closed
-     */
-    fun bindCloseHandler(handler : () -> Unit)
+    var exceptionHandler : (exception : Throwable) -> Unit
 
     /**
      * gracefully stops the socket. The method suspends as it waits for all the writing requests in the channel to be
-     * executed before effectively closing the channel
+     * executed before effectively closing the channel. Once the socket is closed a `NormalCloseException` will be passed
+     * to the exception handler and to any ongoing read method call
      */
     suspend fun close()
 
     /**
-     * forcefully closes the channel without checking the writing request queue
+     * forcefully closes the channel without checking the writing request queue. Once the socket is closed a `ForceCloseException`
+     * will be passed to the exception handler and to any ongoing read method call
      */
     fun forceClose()
 
@@ -45,9 +49,17 @@ expect class TCPClientSocket{
      * not use it between two iterations and must avoid leaking it to exterior coroutines/threads. each iteration will read
      * n bytes ( 0 < n <= buffer.limit ) and set the cursor to 0, the read parameter of the operation is the amount of data read.
      *
+     * If an exception is thrown in the operation lambda, the exception will not close the socket and will not be received by the
+     * exception handler, it will instead be thrown directly by the method
+     *
+     * @throws PeerClosedException
+     * @throws SocketClosedException
+     * @throws BufferOverflowException
+     * @throws ConcurrentReadingException
+
+     *
      * @param buffer buffer used to store the data read. the cursor will be reset after each iteration. The limit of the buffer remains
      * untouched so the developer can chose the amout of data to read.
-     *
      * @param operation lambda called after each read event. The first argument will be the buffer and the second the amount of data read
      *
      * @return Total number of byte read
@@ -55,7 +67,14 @@ expect class TCPClientSocket{
     suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer, read : Int) -> Boolean) : Long
 
     /**
-     * Perform a suspending read, the method will read n bytes ( 0 < n <= buffer.remaining() ) and update the cursor
+     * Perform a suspending read, the method will read n bytes ( 0 < n <= buffer.remaining() ) and update the cursor. If the peer
+     * closes the socket while reading, a `PeerClosedException` will be thrown. If the socket is manually closed while reading,
+     * either `NormalCloseException` or `ForceCloseException` will be thrown
+     *
+     * @throws PeerClosedException
+     * @throws SocketClosedException
+     * @throws BufferOverflowException
+     * @throws ConcurrentReadingException
      *
      * @param buffer buffer used to store the data read
      *
@@ -64,7 +83,14 @@ expect class TCPClientSocket{
     suspend fun read(buffer: MultiplatformBuffer) : Int
 
     /**
-     * Perform a suspending read, the method will read n bytes ( minToRead < n <= buffer.remaining() ) and update the cursor
+     * Perform a suspending read, the method will read n bytes ( minToRead < n <= buffer.remaining() ) and update the cursor If the peer
+     * closes the socket while reading, a `PeerClosedException` will be thrown. If the socket is manually closed while reading,
+     * either `NormalCloseException` or `ForceCloseException` will be thrown
+     *
+     * @throws PeerClosedException
+     * @throws SocketClosedException
+     * @throws BufferOverflowException
+     * @throws ConcurrentReadingException
      *
      * @param buffer buffer used to store the data read
      *
@@ -75,7 +101,14 @@ expect class TCPClientSocket{
     /**
      * Perform a suspending write, the method will not return until all the data between buffer.cursor and buffer.limit are written.
      * The socket use an internal write queue, allowing multiple threads to concurrently write. Backpressure mechanisms
-     * should be implemented by the developer to avoid having too much data in the queue.
+     * should be implemented by the developer to avoid having too much data in the queue. If the peer
+     * closes the socket while reading, a `PeerClosedException` will be thrown. If the socket is manually closed while reading,
+     * either `NormalCloseException` or `ForceCloseException` will be thrown
+     *
+     * @throws SocketClosedException
+     * @throws BufferUnderflowException
+     * @throws SokException
+     * @throws PeerClosedException
      *
      * @param buffer data to write
      *
@@ -121,3 +154,10 @@ expect class TCPClientSocket{
  * @return connected socket
  */
 expect suspend fun createTCPClientSocket(address : String, port : Int ) : TCPClientSocket
+
+/**
+ * Sealed class used to communicate with the internal write actor
+ */
+internal sealed class WriteActorRequest(val deferred: CompletableDeferred<Boolean>)
+internal class CloseRequest(deferred: CompletableDeferred<Boolean>) : WriteActorRequest(deferred)
+internal class WriteRequest(val data: MultiplatformBuffer, deferred: CompletableDeferred<Boolean>) : WriteActorRequest(deferred)

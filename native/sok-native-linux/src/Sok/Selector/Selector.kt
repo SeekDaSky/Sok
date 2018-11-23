@@ -8,6 +8,7 @@ import kotlinx.cinterop.*
 import kotlin.experimental.and
 import kotlinx.coroutines.*
 import kotlin.coroutines.*
+import Sok.Exceptions.*
 
 /**
  * As Companion objects are frozen by default on K/N, we have to move the actual data
@@ -195,9 +196,16 @@ class Selector private constructor() {
         //iterate through the registered sockets and
         for (i in (0 until this.registeredSockets.size)) {
             val struct: pollfd = this.pollArrayStruct[i].reinterpret()
-            val sk = this@Selector.registeredSockets[i]
+            val sk : SelectionKey
+            try {
+                sk = this@Selector.registeredSockets[i]
 
-            //println("registered size: ${this.registeredSockets.size} \t\tsocket number: ${struct.fd} \t\tstruct.revents: ${struct.revents}")
+                if(sk.socket != struct.fd) throw Exception("File descriptor mismatch")
+            }catch (e : Exception){
+                //can happen if the socket unregistered while the selector is polling, if so we cancel and poll again (with the correct sockets)
+                break
+            }
+
 
             if (struct.revents.and(POLLIN.toShort()) == POLLIN.toShort()) {
                 val cont = sk.OP_READ!!
@@ -208,9 +216,14 @@ class Selector private constructor() {
                 } else {
                     val request = sk.alwaysSelectRead!!
                     //if the operation returns false, we can unregister
-                    if (!request.operation.invoke()) {
+                    try {
+                        if (!request.operation.invoke()) {
+                            sk.unsafeUnregister(Interests.OP_READ)
+                            cont.resume(true)
+                        }
+                    }catch (e : Exception){
                         sk.unsafeUnregister(Interests.OP_READ)
-                        cont.resume(true)
+                        cont.resumeWithException(e)
                     }
                 }
             }
@@ -224,16 +237,20 @@ class Selector private constructor() {
                 } else {
                     val request = sk.alwaysSelectWrite!!
                     //if the operation returns false, we can unregister
-                    if (!request.operation.invoke()) {
+                    try {
+                        if (!request.operation.invoke()) {
+                            sk.unsafeUnregister(Interests.OP_WRITE)
+                            cont.resume(true)
+                        }
+                    }catch (e : Exception){
                         sk.unsafeUnregister(Interests.OP_WRITE)
-                        cont.resume(true)
+                        cont.resumeWithException(e)
                     }
                 }
             }
 
-            if (struct.revents.and(POLLHUP.toShort()) == POLLHUP.toShort() ||
-                struct.revents.and(POLLERR.toShort()) == POLLERR.toShort()) {
-                sk.close()
+            if (struct.revents.and(POLLHUP.toShort()) == POLLHUP.toShort() || struct.revents.and(POLLERR.toShort()) == POLLERR.toShort()) {
+                sk.close(PeerClosedException())
             }
         }
     }

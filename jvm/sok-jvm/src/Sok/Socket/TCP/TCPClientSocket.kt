@@ -1,15 +1,12 @@
 package Sok.Socket.TCP
 
 import Sok.Buffer.*
-import Sok.Exceptions.ConnectionRefusedException
-import Sok.Exceptions.OptionNotSupportedException
+import Sok.Exceptions.*
 import Sok.Selector.Selector
 import Sok.Selector.SelectorPool
 import Sok.Selector.SuspentionMap
 import Sok.Socket.Options.Options
 import Sok.Socket.Options.SocketOption
-import kotlinx.atomicfu.AtomicBoolean
-import kotlinx.atomicfu.AtomicRef
 import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.*
@@ -24,6 +21,10 @@ import java.nio.channels.SocketChannel
  * the accumulation of too many data.
  *
  * @property isClosed Keep track of the socket status
+ * @property exceptionHandler Lambda that will be called when an exception resulting in the closing of the socket is thrown. This
+ * happen when calling the `close` or `forceClose` method, if the peer close the socket or if something wrong happen internally.
+ * Exception that does not affect the socket state will not be received by this handler (exception in the `bulkRead` operation
+ * lambda for example)
  */
 actual class TCPClientSocket {
 
@@ -35,7 +36,7 @@ actual class TCPClientSocket {
     /**
      * Actor handling write operations
      */
-    private val writeActor: SendChannel<WriteRequest>
+    private val writeActor: SendChannel<WriteActorRequest>
 
     /**
      * Atomic property backing isClosed
@@ -48,11 +49,21 @@ actual class TCPClientSocket {
         }
         get() = this._isClosed.value
 
+    actual var exceptionHandler : (exception : Throwable) -> Unit = {}
+
     /**
-     * Lambda called when the socket closes
+     * Exception handler used to catch everything that comes from the internal coroutines
      */
-    @Volatile
-    private var onClose : () -> Unit = {}
+    private val internalExceptionHandler = CoroutineExceptionHandler{_,e ->
+        //dispatch close exception once and ignore the others
+        if(e is CloseException && !this.closeExceptionSent.compareAndSet(false,true)) return@CoroutineExceptionHandler
+
+        this.exceptionHandler(e)
+        this.forceClose()
+    }
+
+    private val coroutineScope = CoroutineScope(Dispatchers.IO+this.internalExceptionHandler)
+    private val closeExceptionSent = atomic(false)
 
     /**
      * Suspention map used by the socket for 
@@ -81,63 +92,55 @@ actual class TCPClientSocket {
         channel.setOption(StandardSocketOptions.TCP_NODELAY,true)
 
         //create suspention map
-        this.suspentionMap = SuspentionMap(selector,channel)
+        this.suspentionMap = SuspentionMap(selector,channel,this.internalExceptionHandler)
 
         //update state
         this.isClosed = false
 
         //launch write/read actor
-        this.writeActor = this.writeActor(this.suspentionMap,this.channel){
-            runBlocking(Dispatchers.IO) {
-                this@TCPClientSocket.close()
-            }
-        }
+        this.writeActor = this.writeActor(this.suspentionMap,this.channel)
 
-    }
-
-    /**
-     * handler called when the socket close (expectantly or not)
-     *
-     * @param handler lambda called when the socket is closed
-     */
-    actual fun bindCloseHandler(handler : () -> Unit){
-        this.onClose = handler
     }
 
     /**
      * gracefully stops the socket. The method suspends as it waits for all the writing requests in the channel to be
-     * executed before effectively closing the channel
+     * executed before effectively closing the channel. Once the socket is closed a `NormalCloseException` will be passed
+     * to the exception handler and to any ongoing read method call
      */
     actual suspend fun close(){
-        if(this._isClosed.compareAndSet(false,true)){
-            /** If some coroutines are launched in the same scope as the server scope
-             * and that those coroutines want to write, the server might close before them
-             * even if they were launched before the actual close() statement, in order to
-             * avoid that, we yield first
-             */
-            yield()
+        /** If some coroutines are launched in the same scope as the server scope
+         * and that those coroutines want to write, the server might close before them
+         * even if they were launched before the actual close() statement, in order to
+         * avoid that, we yield first
+         */
+        yield()
 
-            //wait for the write actor to consume everything in the channel
+        //prevent multiple close call
+        if(this._isClosed.compareAndSet(false,true)){
+            //wait for the write actor to consume everything in the channel and to send the NormalCloseException to the exception handler
             val deferred = CompletableDeferred<Boolean>()
-            this.writeActor.send(WriteRequest(allocMultiplatformBuffer(0),deferred))
+            this.writeActor.send(CloseRequest(deferred))
             this.writeActor.close()
             deferred.await()
 
-            this.suspentionMap.close()
+            //the suspention map will cancel all ongoing primitives call and throw the given exception
+            this.suspentionMap.close(NormalCloseException())
             this.channel.close()
-            this.onClose()
         }
     }
 
     /**
-     * forcefully closes the channel without checking the writing request queue
+     * forcefully closes the channel without checking the writing request queue. Once the socket is closed a `ForceCloseException`
+     * will be passed to the exception handler and to any ongoing read method call
      */
     actual fun forceClose(){
+        //prevent multiple close call
         if(this._isClosed.compareAndSet(false,true)){
             this@TCPClientSocket.writeActor.close()
-            this.suspentionMap.close()
+            //as we forcefully closed the write actor, we have to dispatch the ForceCloseException manually
+            this.internalExceptionHandler.handleException(ForceCloseException())
+            this.suspentionMap.close(ForceCloseException())
             this.channel.close()
-            this.onClose()
         }
     }
 
@@ -151,21 +154,31 @@ actual class TCPClientSocket {
      * not use it between two iterations and must avoid leaking it to exterior coroutines/threads. each iteration will read
      * n bytes ( 0 < n <= buffer.limit ) and set the cursor to 0, the read parameter of the operation is the amount of data read.
      *
+     * If an exception is thrown in the operation lambda, the exception will not close the socket and will not be received by the
+     * exception handler, it will instead be thrown directly by the method
+     *
+     * @throws PeerClosedException
+     * @throws SocketClosedException
+     * @throws BufferOverflowException
+     * @throws ConcurrentReadingException
+
+     *
      * @param buffer buffer used to store the data read. the cursor will be reset after each iteration. The limit of the buffer remains
      * untouched so the developer can chose the amout of data to read.
-     *
      * @param operation lambda called after each read event. The first argument will be the buffer and the second the amount of data read
      *
      * @return Total number of byte read
      */
     actual suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer, read : Int) -> Boolean) : Long{
-        if(this.isClosed){
-            return -1
-        }
+        if(this.isClosed) throw SocketClosedException()
+        if(buffer.remaining() <= 0) throw BufferOverflowException()
+        if(this.suspentionMap.OP_READ != null) throw ConcurrentReadingException()
 
         (buffer as JVMMultiplatformBuffer)
         var read : Long = 0
 
+        //track if the operation threw something
+        var exceptionFromOperation : Throwable? = null
         this.suspentionMap.selectAlways(SelectionKey.OP_READ){
             buffer.cursor = 0
 
@@ -175,71 +188,90 @@ actual class TCPClientSocket {
 
                 buffer.cursor = 0
 
-                //let the operation registered by the user tell if we need another selection
-                operation.invoke(buffer,tmpRead)
+                //let the operation registered by the user tell if we need another selection, if the operation throws we pass it to the caller
+                //but don't make it go back to the socket exceptionHandler as it does not affect the state of the socket
+                try {
+                    operation.invoke(buffer,tmpRead)
+                }catch (e : Exception){
+                    exceptionFromOperation = e
+                    false
+                }
             }else{
-                read = -1
-                false
+                throw PeerClosedException()
             }
         }
 
-        if(read == -1.toLong()){
-            this.close()
+        //pass the exception thrown by the operation
+        if(exceptionFromOperation != null){
+            throw exceptionFromOperation!!
         }
 
         return read
     }
 
     /**
-     * Perform a suspending read, the method will read n bytes ( 0 < n <= buffer.remaining() ) and update the cursor
+     * Perform a suspending read, the method will read n bytes ( 0 < n <= buffer.remaining() ) and update the cursor. If the peer
+     * closes the socket while reading, a `PeerClosedException` will be thrown. If the socket is manually closed while reading,
+     * either `NormalCloseException` or `ForceCloseException` will be thrown
+     *
+     * @throws PeerClosedException
+     * @throws SocketClosedException
+     * @throws BufferOverflowException
+     * @throws ConcurrentReadingException
      *
      * @param buffer buffer used to store the data read
      *
      * @return Number of byte read
      */
     actual suspend fun read(buffer: MultiplatformBuffer) : Int{
-        if(this.isClosed){
-            return -1
-        }
+        if(this.isClosed) throw SocketClosedException()
+        if(buffer.remaining() <= 0) throw BufferOverflowException()
+        if(this.suspentionMap.OP_READ != null) throw ConcurrentReadingException()
 
-        require(buffer.remaining() > 0)
+        return withContext(this.coroutineScope.coroutineContext){
+            try {
+                //wait for the selector to detect data then read
+                this@TCPClientSocket.suspentionMap.selectOnce(SelectionKey.OP_READ)
 
-        var read = 0
-        withContext(Dispatchers.IO){
-            //wait for the selector to detect data then read
-            this@TCPClientSocket.suspentionMap.selectOnce(SelectionKey.OP_READ)
+                (buffer as JVMMultiplatformBuffer)
+                val read = channel.read(buffer.nativeBuffer())
 
-            (buffer as JVMMultiplatformBuffer)
-            read = channel.read(buffer.nativeBuffer())
-
-            if(read > 0){
-                buffer.cursor += read
+                if(read > 0){
+                    buffer.cursor += read
+                    return@withContext read
+                }else{
+                    throw PeerClosedException()
+                }
+            }catch (e : Exception){
+                this@TCPClientSocket.internalExceptionHandler.handleException(e)
+                throw e
             }
         }
 
-
-        //if the channel returns -1 it means that the channel has been closed
-        if(read == -1){
-            this.close()
-        }
-        return read
     }
 
     /**
-     * Perform a suspending read, the method will read n bytes ( minToRead < n <= buffer.remaining() ) and update the cursor
+     * Perform a suspending read, the method will read n bytes ( minToRead < n <= buffer.remaining() ) and update the cursor If the peer
+     * closes the socket while reading, a `PeerClosedException` will be thrown. If the socket is manually closed while reading,
+     * either `NormalCloseException` or `ForceCloseException` will be thrown
+     *
+     * @throws PeerClosedException
+     * @throws SocketClosedException
+     * @throws BufferOverflowException
+     * @throws ConcurrentReadingException
      *
      * @param buffer buffer used to store the data read
      *
      * @return Number of byte read
      */
     actual suspend fun read(buffer: MultiplatformBuffer, minToRead : Int) : Int{
-        require(buffer.remaining() >= minToRead)
-        if(this.isClosed){
-            return -1
-        }
+        if(this.isClosed) throw SocketClosedException()
+        if(buffer.remaining() < minToRead) throw BufferOverflowException()
+        if(this.suspentionMap.OP_READ != null) throw ConcurrentReadingException()
 
         (buffer as JVMMultiplatformBuffer)
         var read = 0
+
 
         this.suspentionMap.selectAlways(SelectionKey.OP_READ){
 
@@ -248,16 +280,11 @@ actual class TCPClientSocket {
                 read += tmpRead
                 read < minToRead
             }else{
-                read = -1
-                false
+                throw PeerClosedException()
             }
         }
 
         buffer.cursor += read
-
-        if(read == -1){
-            this.close()
-        }
 
         return read
     }
@@ -265,16 +292,22 @@ actual class TCPClientSocket {
     /**
      * Perform a suspending write, the method will not return until all the data between buffer.cursor and buffer.limit are written.
      * The socket use an internal write queue, allowing multiple threads to concurrently write. Backpressure mechanisms
-     * should be implemented by the developer to avoid having too much data in the queue.
+     * should be implemented by the developer to avoid having too much data in the queue. If the peer
+     * closes the socket while reading, a `PeerClosedException` will be thrown. If the socket is manually closed while reading,
+     * either `NormalCloseException` or `ForceCloseException` will be thrown
+     *
+     * @throws SocketClosedException
+     * @throws BufferUnderflowException
+     * @throws SokException
+     * @throws PeerClosedException
      *
      * @param buffer data to write
      *
      * @return Success of the operation
      */
     actual suspend fun write(buffer: MultiplatformBuffer) : Boolean{
-        if(this.writeActor.isClosedForSend){
-            return false
-        }
+        if(this.isClosed || this.writeActor.isClosedForSend) throw SocketClosedException()
+        if(buffer.remaining() == 0) throw BufferUnderflowException()
 
         val deferred = CompletableDeferred<Boolean>()
         this.writeActor.send(WriteRequest(buffer, deferred))
@@ -285,45 +318,50 @@ actual class TCPClientSocket {
     /**
      * Create a standalone write actor
      */
-    private fun writeActor(selectorManager: SuspentionMap, channel: SocketChannel, onClose : () -> Unit) = GlobalScope.actor<WriteRequest>(Dispatchers.IO){
+    private fun writeActor(selectorManager: SuspentionMap, channel: SocketChannel) = this.coroutineScope.actor<WriteActorRequest>(this.internalExceptionHandler){
         for (request in this.channel){
+            if(request is CloseRequest){
+                request.deferred.complete(true)
+                throw NormalCloseException()
+            }
 
-            request.data.cursor = 0
-            try {
-                val buf = (request.data as JVMMultiplatformBuffer).nativeBuffer()
+            request as WriteRequest
+            val buf = (request.data as JVMMultiplatformBuffer).nativeBuffer()
 
-                //if the buffer is larger than our TCP send buffer, there is a good chance we will have to register the OP_WRITE interest
-                //a few times, so we use the selectAlways() method to optimise that and loop while there still is data to write
-                if(request.data.limit >= channel.getOption(StandardSocketOptions.SO_SNDBUF)){
+            //if the buffer is larger than our TCP send buffer, there is a good chance we will have to register the OP_WRITE interest
+            //a few times, so we use the selectAlways() method to optimise that and loop while there still is data to write
+            if(request.data.limit >= channel.getOption(StandardSocketOptions.SO_SNDBUF)){
+                try {
                     suspentionMap.selectAlways(SelectionKey.OP_WRITE){
                         try {
                             channel.write(buf)
                             buf.hasRemaining()
                         }catch (e : Exception){
-                            onClose()
-                            false
+                            throw PeerClosedException()
                         }
                     }
-                }else{
-                    //even if our buffer is smaller than our TCP send buffer, a single write might not be enough
-                    while (buf.hasRemaining()){
-                        try {
-                            channel.write(buf)
-                        }catch (e : Exception){
-                            onClose()
-                            continue
-                        }
-
-                        if(buf.hasRemaining()) selectorManager.selectOnce(SelectionKey.OP_WRITE)
-                    }
+                }catch (e : Exception){
+                    request.deferred.completeExceptionally(e)
+                    throw e
                 }
+            }else{
+                //even if our buffer is smaller than our TCP send buffer, a single write might not be enough
+                while (buf.hasRemaining()){
+                    try {
+                        channel.write(buf)
+                    }catch (e : Exception){
+                        val exc = PeerClosedException()
+                        request.deferred.completeExceptionally(exc)
+                        //we can throw exceptions here as the Selector send exceptions back to us
+                        throw exc
+                    }
 
-                request.data.cursor = request.data.limit
-                request.deferred.complete(true)
-            }catch (e : Exception){
-                request.deferred.complete(false)
-                onClose()
+                    if(buf.hasRemaining()) selectorManager.selectOnce(SelectionKey.OP_WRITE)
+                }
             }
+
+            request.data.cursor = request.data.limit
+            request.deferred.complete(true)
         }
     }
     /**
@@ -372,8 +410,6 @@ actual class TCPClientSocket {
 
 }
 
-internal class WriteRequest(val data: MultiplatformBuffer, val deferred: CompletableDeferred<Boolean>)
-
 /**
  * Create a client socket with the given address and port. This function will throw a `ConnectionRefusedException` if the socket
  * failed to connect.
@@ -389,7 +425,7 @@ actual suspend fun createTCPClientSocket(address: String, port: Int) : TCPClient
     socket.connect(InetSocketAddress(address,port))
 
     //create temporary suspention map, You should not close as the selection key would be cancelled
-    val suspentionMap = SuspentionMap(Selector.defaultSelector,socket)
+    val suspentionMap = SuspentionMap(Selector.defaultSelector,socket, CoroutineExceptionHandler{_,_ -> })
     suspentionMap.selectOnce(SelectionKey.OP_CONNECT)
 
     try{
