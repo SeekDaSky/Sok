@@ -182,7 +182,14 @@ actual class TCPClientSocket {
         this.suspentionMap.selectAlways(SelectionKey.OP_READ){
             buffer.cursor = 0
 
-            val tmpRead = this.channel.read(buffer.nativeBuffer())
+            val tmpRead : Int
+
+            try {
+                tmpRead = this.channel.read(buffer.nativeBuffer())
+            }catch (e : Exception){
+                throw PeerClosedException()
+            }
+
             if(tmpRead > 0){
                 read += tmpRead
 
@@ -234,7 +241,13 @@ actual class TCPClientSocket {
                 this@TCPClientSocket.suspentionMap.selectOnce(SelectionKey.OP_READ)
 
                 (buffer as JVMMultiplatformBuffer)
-                val read = channel.read(buffer.nativeBuffer())
+
+                val read : Int
+                try {
+                    read = channel.read(buffer.nativeBuffer())
+                }catch (e : Exception){
+                    throw PeerClosedException()
+                }
 
                 if(read > 0){
                     buffer.cursor += read
@@ -275,7 +288,12 @@ actual class TCPClientSocket {
 
         this.suspentionMap.selectAlways(SelectionKey.OP_READ){
 
-            val tmpRead = this.channel.read(buffer.nativeBuffer())
+            val tmpRead : Int
+            try {
+                tmpRead = this.channel.read(buffer.nativeBuffer())
+            }catch (e : Exception){
+                throw PeerClosedException()
+            }
             if(tmpRead > 0){
                 read += tmpRead
                 read < minToRead

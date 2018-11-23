@@ -64,10 +64,13 @@ class NativeMultiplatformBuffer : MultiplatformBuffer{
      * @return data copied from the buffer
      */
     override fun getBytesImpl(length: Int, index: Int?): ByteArray {
+        //when pinned, the address() method throws when size == 0
+        if(length == 0) return ByteArray(0)
+
         val realIndex = index ?: this.cursor
         val arr = ByteArray(length)
         arr.usePinned{
-            memcpy(it.addressOf(0),this.firstPointer+realIndex,(this.limit-realIndex).toULong())
+            memcpy(it.addressOf(0),this.firstPointer+realIndex,length.toULong())
         }
         return arr
     }
@@ -162,6 +165,9 @@ class NativeMultiplatformBuffer : MultiplatformBuffer{
      * @param index index of the first byte, buffer.cursor is used if the index is null
      */
     override fun putBytesImpl(array: ByteArray, index: Int?) {
+        //when pinned, the address() method throws when size == 0
+        if(array.size == 0) return
+
         val realIndex = index ?: this.cursor
         array.usePinned {
             val address = it.addressOf(0)
