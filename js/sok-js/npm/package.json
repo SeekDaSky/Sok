@@ -1,0 +1,29 @@
+{
+  "name": "sok-js",
+  "version" : "$sok_version",
+  "description" : "Coroutine-friendly socket library for kotlin",
+  "main" : "sok.js",
+  "author": "SeekDaSky",
+  "license": "MIT",
+  "homepage": "https://github.com/SeekDaSky/Sok",
+  "bugs": {
+    "url": "https://github.com/SeekDaSky/Sok/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SeekDaSky/Sok.git"
+  },
+  "keywords": [
+    "Kotlin",
+    "async",
+    "coroutines",
+    "JavaScript",
+    "socket",
+    "networking",
+    "io"
+  ],
+  "peerDependencies": {
+    "kotlin": "$kotlin_version",
+    "kotlinx-coroutines-core": "$coroutine_version"
+  }
+}

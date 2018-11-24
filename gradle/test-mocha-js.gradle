@@ -9,7 +9,6 @@ task installDependenciesMochaNode(type: NpmTask, dependsOn: [npmInstall]) {
             '--no-save']
 }
 
-// todo: use atomicfu-transformed test files here (not critical)
 task testMochaNode(type: NodeTask, dependsOn: [compileTestKotlin2Js, installDependenciesMochaNode]) {
     script = file("$node.nodeModulesDir/mocha/bin/mocha")
     args = ["$node.nodeModulesDir/sok-js_test.js", '--require', 'source-map-support/register', "--timeout", "5000"]
