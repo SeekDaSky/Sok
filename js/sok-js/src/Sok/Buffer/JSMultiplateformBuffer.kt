@@ -58,6 +58,20 @@ class JSMultiplatformBuffer : MultiplatformBuffer{
         this.backBuffer.copy(tmpArr,0,realIndex,realIndex+length)
         return Int8Array(tmpArr.buffer).unsafeCast<ByteArray>()
     }
+    /**
+     * Copy bytes into the array starting from the current cursor position or given index. You can start the copy with an offset in the
+     * destination array and specify the number of byte you want to be copied.
+     *
+     * @param array destination array
+     * @param index index of the first byte, buffer.cursor is used if the index is null
+     * @param destinationOffset The offset within the array of the first byte to be written
+     * @param length amount of data to copy
+     */
+    override fun getBytesImpl(array : ByteArray, index: Int?, destinationOffset : Int, length: Int){
+        val realIndex = index ?: this.cursor
+        val tmpArr = array.unsafeCast<Uint8Array>()
+        this.backBuffer.copy(tmpArr,destinationOffset,realIndex,realIndex+length)
+    }
 
     /**
      * Get the unsigned byte at the current cursor position. If the index parameter is provided, the cursor will be ignored and

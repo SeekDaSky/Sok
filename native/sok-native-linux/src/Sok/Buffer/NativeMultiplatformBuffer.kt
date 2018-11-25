@@ -76,6 +76,25 @@ class NativeMultiplatformBuffer : MultiplatformBuffer{
     }
 
     /**
+     * Copy bytes into the array starting from the current cursor position or given index. You can start the copy with an offset in the
+     * destination array and specify the number of byte you want to be copied.
+     *
+     * @param array destination array
+     * @param index index of the first byte, buffer.cursor is used if the index is null
+     * @param destinationOffset The offset within the array of the first byte to be written
+     * @param length amount of data to copy
+     */
+    override fun getBytesImpl(array : ByteArray, index: Int?, destinationOffset : Int, length: Int){
+        //when pinned, the address() method throws when size == 0
+        if(length == 0 || array.size == 0) return
+
+        val realIndex = index ?: this.cursor
+        array.usePinned{
+            memcpy(it.addressOf(0)+destinationOffset,this.firstPointer+realIndex,length.toULong())
+        }
+    }
+
+    /**
      * Get the unsigned byte at the current cursor position. If the index parameter is provided, the cursor will be ignored and
      * not modified
      *

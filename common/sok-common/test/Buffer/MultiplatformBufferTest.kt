@@ -121,6 +121,39 @@ class MultiplateformBufferTest {
     }
 
     @Test
+    @JsName("BufferCopyByteArray")
+    fun `Buffer copy Byte array`(){
+        val arr = listOf(1,2,255.toByte()).toByteArray()
+
+        val buf = allocMultiplatformBuffer(3)
+        buf.putBytes(arr)
+
+        //get relative/absolute getBytes
+        var array = ByteArray(3)
+        buf.cursor = 0
+
+        buf.getBytes(array)
+        assertEquals(arr.toList(),array.toList())
+        assertEquals(3,buf.cursor)
+
+        array = ByteArray(3)
+        buf.getBytes(   array,0)
+        assertEquals(arr.toList(),array.toList())
+
+        array = ByteArray(3)
+        buf.getBytes(array,0,1)
+        assertEquals(0,array[0])
+        assertEquals(arr[0],array[1])
+        assertEquals(arr[1],array[2])
+
+        array = ByteArray(3)
+        buf.getBytes(array,0,destinationOffset = 1,length = 1)
+        assertEquals(0,array[0])
+        assertEquals(arr[0],array[1])
+        assertEquals(0,array[2])
+    }
+
+    @Test
     @JsName("BufferPutGetShort")
     fun `Buffer put get Short`(){
         val buf = wrapMultiplatformBuffer(listOf<Byte>(1,2).toByteArray())
