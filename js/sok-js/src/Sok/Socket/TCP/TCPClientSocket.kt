@@ -52,6 +52,12 @@ actual class TCPClientSocket{
     private var indexInStream = 0
 
     /**
+     * as the unshift method send a "readable" as soon as it is executed, we have to implement an unshift mechanism ourself to
+     * avoid the readable operation being called multiple times
+     */
+    private var unshifted : Buffer? = null
+
+    /**
      * Continuation used to suspend the caller of a read primitive. This must be cancelled on socket close or on error. We
      * also use it to know if there is already an ongoing read call to prevent concurrent reads.
      */
@@ -165,7 +171,7 @@ actual class TCPClientSocket{
     private fun readInto(buffer : JSMultiplatformBuffer) : Int{
         if(buffer.remaining() == 0) throw BufferOverflowException()
         //read from the socket, with a minimum or not
-        val internalBuffer : Buffer? = this.socket.read()
+        val internalBuffer : Buffer? = this.unshifted ?: this.socket.read()
 
         //if the there is no data to read, return -1, the caller will decide if this is normal or not
         if(internalBuffer == null){
@@ -180,14 +186,15 @@ actual class TCPClientSocket{
             buffer.cursor += internalBuffer.copy(buffer.nativeBuffer(),buffer.cursor,0,internalBuffer.length)
         }else{
             //transfer all the data we can
-            val read = internalBuffer.copy(buffer.nativeBuffer(),buffer.cursor,this.indexInStream,min(internalBuffer.length,buffer.remaining()))
+            val read = internalBuffer.copy(buffer.nativeBuffer(),buffer.cursor,this.indexInStream,min(internalBuffer.length,buffer.remaining()+this.indexInStream))
             buffer.cursor += read
             //if we read all the remaining data from the nodejs buffer, discard it, else unshift it and update indexInStream
             if(this.indexInStream + read != internalBuffer.length){
-                this.indexInStream += buffer.limit
-                this.socket.unshift(internalBuffer)
+                this.indexInStream += read
+                this.unshifted = internalBuffer
             }else{
                 this.indexInStream = 0
+                this.unshifted = null
             }
         }
 
@@ -202,6 +209,12 @@ actual class TCPClientSocket{
      * @param operation lambda to call after each event
      */
     private suspend fun registerReadable(operation : () -> Boolean ){
+        //check internally unshifted buffer first
+        while(this.unshifted != null){
+            if(!operation.invoke()) return
+        }
+
+
         suspendCancellableCoroutine<Unit> {
             //store the continuation
             this.readingContinuation = it
@@ -212,6 +225,15 @@ actual class TCPClientSocket{
                     this.readingContinuation = null
                     socket.removeAllListeners("readable")
                     it.resume(Unit)
+                }else{
+                    while(this.unshifted != null){
+                        if(!operation.invoke()){
+                            //unregister everything
+                            this.readingContinuation = null
+                            socket.removeAllListeners("readable")
+                            it.resume(Unit)
+                        }
+                    }
                 }
             }
             //if the continuation is cancelled, we have to unregister the listener on readable to prevent any unwanted call to the
@@ -255,7 +277,7 @@ actual class TCPClientSocket{
         if(buffer.remaining() <= 0) throw BufferOverflowException()
         if(this.readingContinuation != null) throw ConcurrentReadingException()
 
-        var total = -1L
+        var total = 0L
         (buffer as JSMultiplatformBuffer)
 
         //track if the operation lambda threw something
@@ -272,9 +294,7 @@ actual class TCPClientSocket{
                 buffer.cursor = 0
                 //if the operation returns false, unregister
                 try {
-                    if (!operation(buffer, read)) {
-                        return@registerReadable false
-                    }
+                    return@registerReadable operation(buffer, read)
                 }catch (e : Exception){
                     exc = e
                     return@registerReadable false
@@ -287,7 +307,6 @@ actual class TCPClientSocket{
         if(exc != null){
             throw exc!!
         }
-
 
         return total
     }
@@ -342,17 +361,13 @@ actual class TCPClientSocket{
 
         var read : Int = 0
 
+        (buffer as JSMultiplatformBuffer)
         this.registerReadable {
-            (buffer as JSMultiplatformBuffer)
-            if(buffer.hasRemaining()){
-                val tmp = this.readInto(buffer)
-                if(tmp != -1){
-                    read += tmp
-                }
-                tmp != -1 && read < minToRead && !this.isClosed
-            }else{
-                false
+            val tmp = this.readInto(buffer)
+            if(tmp != -1){
+                read += tmp
             }
+            tmp != -1 && read < minToRead
         }
 
         if(read < minToRead) throw PeerClosedException()
