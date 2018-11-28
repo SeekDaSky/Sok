@@ -210,6 +210,9 @@ actual class TCPClientSocket{
      */
     private suspend fun registerReadable(operation : () -> Boolean ){
         //check internally unshifted buffer first
+        if(this.unshifted != null){
+            yield()
+        }
         while(this.unshifted != null){
             if(!operation.invoke()) return
         }
