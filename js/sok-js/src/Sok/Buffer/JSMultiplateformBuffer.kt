@@ -178,7 +178,11 @@ class JSMultiplatformBuffer : MultiplatformBuffer{
      * @param index index of the byte, buffer.cursor is used if the index is null
      */
     override fun putByteImpl(value: Byte, index: Int?) {
-        this.backBuffer.writeInt8(value,index ?: this.cursor)
+        if(value < 0){
+            this.backBuffer.writeInt8(value,index ?: this.cursor)
+        }else{
+            this.backBuffer.writeUInt8(value,index ?: this.cursor)
+        }
     }
 
     /**
@@ -189,7 +193,12 @@ class JSMultiplatformBuffer : MultiplatformBuffer{
      * @param index index of the short, buffer.cursor is used if the index is null
      */
     override fun putShortImpl(value: Short, index: Int?) {
-        this.backBuffer.writeInt16BE(value,index ?: this.cursor)
+        //Node.js Buffers check value range, screw you Node
+        if(value < 0){
+            this.backBuffer.writeInt16BE(value,index ?: this.cursor)
+        }else{
+            this.backBuffer.writeUInt16BE(value,index ?: this.cursor)
+        }
     }
 
     /**
@@ -200,7 +209,11 @@ class JSMultiplatformBuffer : MultiplatformBuffer{
      * @param index index of the int, buffer.cursor is used if the index is null
      */
     override fun putIntImpl(value: Int, index: Int?) {
-        this.backBuffer.writeInt32BE(value,index ?: this.cursor)
+        if(value < 0){
+            this.backBuffer.writeInt32BE(value,index ?: this.cursor)
+        }else{
+            this.backBuffer.writeUInt32BE(value,index ?: this.cursor)
+        }
     }
 
     /**
@@ -216,8 +229,17 @@ class JSMultiplatformBuffer : MultiplatformBuffer{
         //keep only the last 32 bits
         val int2 = (value.shr(32)).toInt()
 
-        this.backBuffer.writeInt32BE(int2,index ?: this.cursor)
-        this.backBuffer.writeInt32BE(int1,index?.plus(4) ?: this.cursor+4)
+        if(int2 < 0){
+            this.backBuffer.writeInt32BE(int2,index ?: this.cursor)
+        }else{
+            this.backBuffer.writeUInt32BE(int2,index ?: this.cursor)
+        }
+
+        if(int1 < 0){
+            this.backBuffer.writeInt32BE(int1,index?.plus(4) ?: this.cursor+4)
+        }else{
+            this.backBuffer.writeUInt32BE(int1,index?.plus(4) ?: this.cursor+4)
+        }
     }
 
     /**

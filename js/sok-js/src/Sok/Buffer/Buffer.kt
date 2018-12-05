@@ -28,6 +28,10 @@ internal external class Buffer : Uint8Array{
     fun writeInt16BE(value : Short, offset: Int)
     fun writeInt32BE(value : Int , offset: Int)
 
+    fun writeUInt8(value : Byte , offset: Int)
+    fun writeUInt16BE(value : Short, offset: Int)
+    fun writeUInt32BE(value : Int , offset: Int)
+
     fun write(str : String, offset: Int, encoding : String) : Int
 
     fun toString(charset: String) : String

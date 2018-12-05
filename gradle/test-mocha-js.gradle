@@ -11,7 +11,7 @@ task installDependenciesMochaNode(type: NpmTask, dependsOn: [npmInstall]) {
 
 task testMochaNode(type: NodeTask, dependsOn: [compileTestKotlin2Js, installDependenciesMochaNode]) {
     script = file("$node.nodeModulesDir/mocha/bin/mocha")
-    args = ["$node.nodeModulesDir/sok-js_test.js", '--require', 'source-map-support/register', "--timeout", "5000"]
+    args = ["$node.nodeModulesDir/sok-js_test.js", '--require', 'source-map-support/register', "--timeout", "10000"]
 }
 
 test.dependsOn testMochaNode
