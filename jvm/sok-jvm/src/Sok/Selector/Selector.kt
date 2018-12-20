@@ -83,7 +83,7 @@ class Selector {
 
     private val thread = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
 
-    val coroutineScope = CoroutineScope(this.thread)
+    val coroutineScope = CoroutineScope(this.thread+ CoroutineExceptionHandler { _, _ ->  })
 
     private val mainLoop : Job
 

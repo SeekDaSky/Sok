@@ -237,24 +237,20 @@ actual class TCPClientSocket {
 
         return withContext(this.coroutineScope.coroutineContext){
             try {
+                (buffer as JVMMultiplatformBuffer)
+
+                this@TCPClientSocket.readFast(buffer)?.let{
+                    return@withContext it
+                }
+
                 //wait for the selector to detect data then read
                 this@TCPClientSocket.suspentionMap.selectOnce(SelectionKey.OP_READ)
 
-                (buffer as JVMMultiplatformBuffer)
-
-                val read : Int
-                try {
-                    read = channel.read(buffer.nativeBuffer())
-                }catch (e : Exception){
-                    throw PeerClosedException()
+                this@TCPClientSocket.readFast(buffer)?.let{
+                    return@withContext it
                 }
 
-                if(read > 0){
-                    buffer.cursor += read
-                    return@withContext read
-                }else{
-                    throw PeerClosedException()
-                }
+                throw PeerClosedException()
             }catch (e : Exception){
                 this@TCPClientSocket.internalExceptionHandler.handleException(e)
                 throw e
@@ -285,6 +281,9 @@ actual class TCPClientSocket {
         (buffer as JVMMultiplatformBuffer)
         var read = 0
 
+        this@TCPClientSocket.readFast(buffer)?.let{
+            if(it >= minToRead) return it else read += it
+        }
 
         this.suspentionMap.selectAlways(SelectionKey.OP_READ){
 
@@ -296,15 +295,37 @@ actual class TCPClientSocket {
             }
             if(tmpRead > 0){
                 read += tmpRead
+                buffer.cursor += tmpRead
                 read < minToRead
             }else{
                 throw PeerClosedException()
             }
         }
 
-        buffer.cursor += read
-
         return read
+    }
+
+    /**
+     * Try to read the channel without registering the read interest on the selector, if there is already data in the buffer
+     * we will read them right away and avoid the large cost of a registration
+     */
+    private fun readFast(buffer : MultiplatformBuffer) : Int?{
+        (buffer as JVMMultiplatformBuffer)
+
+        //fast path, try to read without waiting for the readable event, if it fails, wait
+        val read : Int
+        try {
+            read = channel.read(buffer.nativeBuffer())
+        }catch (e : Exception){
+            throw PeerClosedException()
+        }
+
+        if(read > 0) {
+            buffer.cursor += read
+            return read
+        }else{
+            return null
+        }
     }
 
     /**
