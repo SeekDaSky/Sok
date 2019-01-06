@@ -235,28 +235,25 @@ actual class TCPClientSocket {
         if(buffer.remaining() <= 0) throw BufferOverflowException()
         if(this.suspentionMap.OP_READ != null) throw ConcurrentReadingException()
 
-        return withContext(this.coroutineScope.coroutineContext){
-            try {
-                (buffer as JVMMultiplatformBuffer)
+        try {
+            (buffer as JVMMultiplatformBuffer)
 
-                this@TCPClientSocket.readFast(buffer)?.let{
-                    return@withContext it
-                }
-
-                //wait for the selector to detect data then read
-                this@TCPClientSocket.suspentionMap.selectOnce(SelectionKey.OP_READ)
-
-                this@TCPClientSocket.readFast(buffer)?.let{
-                    return@withContext it
-                }
-
-                throw PeerClosedException()
-            }catch (e : Exception){
-                this@TCPClientSocket.internalExceptionHandler.handleException(e)
-                throw e
+            this@TCPClientSocket.readFast(buffer)?.let{
+                return it
             }
-        }
 
+            //wait for the selector to detect data then read
+            this@TCPClientSocket.suspentionMap.selectOnce(SelectionKey.OP_READ)
+
+            this@TCPClientSocket.readFast(buffer)?.let{
+                return it
+            }
+
+            throw PeerClosedException()
+        }catch (e : Exception){
+            this@TCPClientSocket.internalExceptionHandler.handleException(e)
+            throw e
+        }
     }
 
     /**

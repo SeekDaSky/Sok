@@ -209,10 +209,15 @@ actual class TCPClientSocket{
      * @param operation lambda to call after each event
      */
     private suspend fun registerReadable(operation : () -> Boolean ){
-        //check internally unshifted buffer first
+        /**
+         * check internally unshifted buffer first, we must yield to preserve the execution order
+         * this is a bit of a performance issue as suspentions on K/JS are EXPENSIVE but we muse keep
+         * the same behavior between two read calls.
+         */
         if(this.unshifted != null){
             yield()
         }
+
         while(this.unshifted != null){
             if(!operation.invoke()) return
         }
