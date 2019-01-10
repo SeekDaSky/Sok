@@ -164,10 +164,7 @@ class JSMultiplatformBuffer : MultiplatformBuffer{
      * @param index index of the first byte, buffer.cursor is used if the index is null
      */
     override fun putBytesImpl(array: ByteArray, index: Int?) {
-        //seriously node, why can't you copy a bunch of data inside a buffer?
-        array.forEachIndexed {i,byte ->
-            this.putByteImpl(byte,index?.plus(i) ?: this.cursor+i)
-        }
+        this.backBuffer.set(array.unsafeCast<Uint8Array>(),index ?: this.cursor)
     }
 
     /**
