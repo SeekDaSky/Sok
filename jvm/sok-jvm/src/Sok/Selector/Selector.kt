@@ -1,5 +1,6 @@
 package Sok.Selector
 
+import Sok.Exceptions.PeerClosedException
 import Sok.Exceptions.handleException
 import kotlinx.atomicfu.AtomicRef
 import kotlinx.atomicfu.atomic
@@ -9,30 +10,30 @@ import java.nio.channels.CancelledKeyException
 import java.nio.channels.SelectableChannel
 import java.nio.channels.SelectionKey
 import java.nio.channels.Selector
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlin.math.min
 
 /**
- * Class wrapping the NIO Selector class for a more "coroutine-friendly" approach. Each `SelectableCHannel` will have a `SuspentionMap` as
- * attachment, this map contains all teh Continuations/Lambda to resume/call when an event come in.
  *
- * Sockets register quite frequently and as the NIO Selector class blocks any registration while selecting we have to implement a way to
- * synchronize registrations and the Selector class. This is done by sharing the `CoroutineScope` of the Selector to the `SuspentionMap`
- * classes, this way the `SuspentionMap` is able to launch coroutine on the Selector Thread, thus ensuring mutual-exclusion.
+ * The Sok Selector class helps to go from a crappy blocking NIO Selector interface to a nice coroutine based interface.
+ * The Selector will take care of registrations to the underlying NIO Selector in a non-blocking and non-suspending way
+ * in order to have the best performances possible. In order to do that (and because the NIO Selector is blocking) the
+ * Selector have a single thread executor to which we will give "ticks" tasks, when a socket wants to register we will
+ * pause the ticking, register and send a resume task to the executor, if the registration task is fast enough the ticking
+ * will not be paused.
  *
- * To reduce the number of registration, a socket may register for a unknown number of event. If so the selector will call a lambda after
- * each event and this lambda will return if the Selector should keep the registration or not. This method slow down the selector but
- * the performance gain is worth it.
- *
- * @property selector NIO selector
+ * The Selector uses the SuspentionMap class to get and resume the suspention or execute the callback. There is two kinds
+ * of operation for the SuspentionMap, resume the continuation and unregister the interest directly (for single read operations)
+ * or execute a callback that will return whether or not we should unregister. The goal of those two "modes" is to reduce the
+ * number of (expensive) interest update operations. The counterpart is that the Selector now execute user-code which can
+ * greatly slow down the ticking rate, the developer should be careful.
+
  * @property numberOfChannel number fo channel registered to this selector, used for load balancing
- * @property _isClosed Atomic backing field of isClosed
  * @property isClosed is the Selector still running
- * @property isInSelection is the selector in selection
- * @property thread `SingleThreadExecutor` used as a `CoroutineDispatcher` to run the selection/registration operations
- * @property coroutineScope scope given to the `SuspentionMap` classes to run registration coroutine on the right thread
- * @property mainLoop main selection loop
  *
  * @constructor Initialize a selector and launch its main selection loop
  */
@@ -44,31 +45,41 @@ class Selector {
      * A `Server` socket will always use a pool and initialise it if needed
      */
     companion object {
+
         /**
          * is the selector pool initialized.
          */
         var isSelectorPoolInit = false
 
         /**
-         * selector pool
+         * default selector pool
          */
         val defaultSelectorPool by lazy {
             isSelectorPoolInit = true
-            SelectorPool(Runtime.getRuntime().availableProcessors())
+            SelectorPool(min(1,Runtime.getRuntime().availableProcessors()/2))
         }
 
         /**
-         * selector
+         * default selector
          */
         val defaultSelector by lazy { Selector() }
     }
 
+    /**
+     * NIO selector
+     */
     private val selector = Selector.open()
 
+    /**
+     * Used for load balancing by the SelectorPool
+     */
     @Volatile
     var numberOfChannel = 0
         private set
 
+    /**
+     * Backing property of the selector state
+     */
     private val _isClosed : AtomicRef<Boolean> =  atomic<Boolean>(false)
 
     var isClosed : Boolean
@@ -77,157 +88,209 @@ class Selector {
         }
         get() = this._isClosed.value
 
-    @Volatile
-    var isInSelection = true
-        private set
+    /**
+     * If the selector is in selection, there is a good chance that any registering/update operation will block
+     * this property is used to know when we should wakeup the selector before register
+     */
+    private val isInSelection = atomic(true)
 
-    private val thread = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+    /**
+     * When someone wants to register, it set the shouldPause atomic to true and wakeup the selector, there is a
+     * chance that the registration is fast enough to set the shouldPause property to false while the selector is
+     * finishing the tick, allowing it to continue without pause.
+     */
+    private val shouldPause = atomic(false)
 
-    val coroutineScope = CoroutineScope(this.thread+ CoroutineExceptionHandler { _, _ ->  })
+    /**
+     * Atomic keeping track of the number of socket in the process of registering/updating, it is used to reduce
+     * the number of call the pauseLoop() and resumeLoop()
+     */
+    private val inRegister = atomic(0)
 
-    private val mainLoop : Job
+    /**
+     * Executor
+     */
+    private val thread = Executors.newSingleThreadExecutor()
+
+    /**
+     * Future representing the last tick of the Selector
+     */
+    private var tickFuture : Future<*>
+
 
     init{
-        this.mainLoop = this.coroutineScope.launch{
-            loop()
+        this.tickFuture = this.thread.submit {
+            this.nextTick()
         }
     }
 
     /**
-     * The main loop is the core of the Selector. It will perform the selection actions, resume the coroutines or execute the operation lambda then will yield in order
-     * to let possible registration coroutines run before the next selection cycle
-     *
-     * For performances purposes It is possible to register an interest for an undefined number of selection. In this case the "alwaysSelectXXX" properties of the
-     * SuspentionMap are used. In order to guaranty the atomicity of those types of selection, an operation is registered and the selector will execute this lambda
-     * synchronously before continuing its loop. Because of that the registered operation NEEDS to be non-suspending and non blocking as well as being not
-     * computation-intensive. The operation will return true if the selector need to select again and will return false when the selector need to unregister the
-     * interest and resume the coroutine.
-     *
-     * As those operation lambda are defined by the user, they may throw unexpected exceptions so we try catch it and resume the interest coroutine with the exception
-     * so the caller can process them
+     * Schedule the next Selector tick
      */
-    private suspend fun loop(){
-        while (!this.isClosed){
-            //as the loop have its own thread, we can block it with endless selection without worry
+    private fun scheduleNextTick(){
+        this.tickFuture = this.thread.submit {
+            try {
+                this.nextTick()
+            }catch (e : Exception){
+                //e.printStackTrace()
+            }
+        }
+    }
+
+
+    /**
+     * Main method of the class, it will do a select operation and process the events
+     */
+    private fun nextTick(){
+        /**
+         * We should check the shouldPause property here in case a socket came to register while the tick task was submitted
+         */
+        if(!this.shouldPause.value){
             this.selector.select()
+        }else{
+            this.selector.selectNow()
+        }
 
-            //update state
-            this.isInSelection = false
+        //update state
+        this.isInSelection.value = false
 
-            //if the selection returns, it means that we have movement on the channels or that the registering actor woke the selector up
-            for(it in this.selector.selectedKeys()) {
-                //get the suspention map
-                val suspentionMap = it.attachment() as SuspentionMap
-                /*
-                The following blocks all have the same pattern thus only the first one will be commented
+        //if the selection returns, it means that we have movement on the channels or that the registering actor woke the selector up
+        for(it in this.selector.selectedKeys()) {
+            //get the suspention map
+            val suspentionMap = it.attachment() as SuspentionMap
+            /*
+            The following blocks all have the same pattern thus only the first one will be commented
 
-                The SuspentionMap implementation guaranty that the continuation will not be null and we need to unregister the interest BEFORE
-                resuming the coroutine to avoid state incoherence
-                 */
-                if (it.isValid && it.isReadable) {
-                    val cont = suspentionMap.OP_READ!!
-                    //check if there is an ongoing unlimited selection request
-                    if(suspentionMap.alwaysSelectRead == null) {
-                        //if not, unregister then resume the coroutine
-                        suspentionMap.unsafeUnregister(SelectionKey.OP_READ)
-                        cont.resume(true)
-                    }else {
-                        try{
-                            val request = suspentionMap.alwaysSelectRead!!
-                            //if the operation returns false, we can unregister
-                            if (!request.operation()) {
-                                suspentionMap.unsafeUnregister(SelectionKey.OP_READ)
-                                cont.resume(true)
-                            }
-                        }catch (e : Exception){
-                            //propagate the exception
+            The SuspentionMap implementation guaranty that the continuation will not be null and we need to unregister the interest BEFORE
+            resuming the coroutine to avoid state incoherence
+             */
+            if (it.isValid && it.isReadable) {
+                val cont = suspentionMap.OP_READ!!
+                //check if there is an ongoing unlimited selection request
+                if(suspentionMap.alwaysSelectRead == null) {
+                    //if not, unregister then resume the coroutine
+                    suspentionMap.unsafeUnregister(SelectionKey.OP_READ)
+                    cont.resume(true)
+                }else {
+                    try{
+                        val request = suspentionMap.alwaysSelectRead!!
+                        //if the operation returns false, we can unregister
+                        if (!request.operation()) {
                             suspentionMap.unsafeUnregister(SelectionKey.OP_READ)
-                            cont.resumeWithException(e)
+                            cont.resume(true)
                         }
+                    }catch (e : Exception){
+                        //propagate the exception
+                        suspentionMap.unsafeUnregister(SelectionKey.OP_READ)
+                        cont.resumeWithException(e)
                     }
                 }
-
-                if (it.isValid && it.isWritable) {
-                    val cont = suspentionMap.OP_WRITE!!
-                    if(suspentionMap.alwaysSelectWrite == null) {
-                        suspentionMap.unsafeUnregister(SelectionKey.OP_WRITE)
-                        cont.resume(true)
-                    }else {
-                        try {
-                            val request = suspentionMap.alwaysSelectWrite!!
-                            if (!request.operation()) {
-                                //same as a SelectOnce request
-                                suspentionMap.unsafeUnregister(SelectionKey.OP_WRITE)
-                                cont.resume(true)
-                            }
-                        }catch (e : Exception){
-                            suspentionMap.unsafeUnregister(SelectionKey.OP_WRITE)
-                            cont.resumeWithException(e)
-                        }
-                    }
-                }
-                if (it.isValid && it.isAcceptable) {
-                    val cont = suspentionMap.OP_ACCEPT!!
-                    if(suspentionMap.alwaysSelectAccept == null) {
-                        suspentionMap.unsafeUnregister(SelectionKey.OP_ACCEPT)
-                        cont.resume(true)
-                    }else {
-                        try {
-                            val request = suspentionMap.alwaysSelectAccept!!
-                            if (!request.operation()) {
-                                //same as a SelectOnce request
-                                suspentionMap.unsafeUnregister(SelectionKey.OP_ACCEPT)
-                                cont.resume(true)
-                            }
-                        }catch (e : Exception){
-                            suspentionMap.unsafeUnregister(SelectionKey.OP_ACCEPT)
-                            cont.resumeWithException(e)
-                        }
-                    }
-                }
-                if (it.isValid && it.isConnectable) {
-                    val cont = suspentionMap.OP_CONNECT!!
-                    if(suspentionMap.alwaysSelectConnect == null) {
-                        suspentionMap.unsafeUnregister(SelectionKey.OP_CONNECT)
-                        cont.resume(true)
-                    }else {
-                        try {
-                            val request = suspentionMap.alwaysSelectConnect!!
-                            if (!request.operation()) {
-                                //same as a SelectOnce request
-                                suspentionMap.unsafeUnregister(SelectionKey.OP_CONNECT)
-                                cont.resume(true)
-                            }
-                        }catch (e : Exception){
-                            suspentionMap.unsafeUnregister(SelectionKey.OP_CONNECT)
-                            cont.resumeWithException(e)
-                        }
-                    }
-                } else{
-                    continue
-                }
-
             }
 
-            //clear keys
-            this.selector.selectedKeys().clear()
+            if (it.isValid && it.isWritable) {
+                val cont = suspentionMap.OP_WRITE!!
+                if(suspentionMap.alwaysSelectWrite == null) {
+                    suspentionMap.unsafeUnregister(SelectionKey.OP_WRITE)
+                    cont.resume(true)
+                }else {
+                    try {
+                        val request = suspentionMap.alwaysSelectWrite!!
+                        if (!request.operation()) {
+                            suspentionMap.unsafeUnregister(SelectionKey.OP_WRITE)
+                            cont.resume(true)
+                        }
+                    }catch (e : Exception){
+                        suspentionMap.unsafeUnregister(SelectionKey.OP_WRITE)
+                        cont.resumeWithException(e)
+                    }
+                }
+            }
+            if (it.isValid && it.isAcceptable) {
+                val cont = suspentionMap.OP_ACCEPT!!
+                if(suspentionMap.alwaysSelectAccept == null) {
+                    suspentionMap.unsafeUnregister(SelectionKey.OP_ACCEPT)
+                    cont.resume(true)
+                }else {
+                    try {
+                        val request = suspentionMap.alwaysSelectAccept!!
+                        if (!request.operation()) {
+                            suspentionMap.unsafeUnregister(SelectionKey.OP_ACCEPT)
+                            cont.resume(true)
+                        }
+                    }catch (e : Exception){
+                        suspentionMap.unsafeUnregister(SelectionKey.OP_ACCEPT)
+                        cont.resumeWithException(e)
+                    }
+                }
+            }
+            if (it.isValid && it.isConnectable) {
+                val cont = suspentionMap.OP_CONNECT!!
+                if(suspentionMap.alwaysSelectConnect == null) {
+                    suspentionMap.unsafeUnregister(SelectionKey.OP_CONNECT)
+                    cont.resume(true)
+                }else {
+                    try {
+                        val request = suspentionMap.alwaysSelectConnect!!
+                        if (!request.operation()) {
+                            suspentionMap.unsafeUnregister(SelectionKey.OP_CONNECT)
+                            cont.resume(true)
+                        }
+                    }catch (e : Exception){
+                        suspentionMap.unsafeUnregister(SelectionKey.OP_CONNECT)
+                        cont.resumeWithException(e)
+                    }
+                }
+            } else{
+                continue
+            }
 
-            //update state before yielding to avoid state incoherence
-            this.isInSelection = true
+        }
 
-            //yield to let registrations coroutine run
-            yield()
+        //clear keys
+        this.selector.selectedKeys().clear()
 
-            //update the number of socket registered
-            this.numberOfChannel = this.selector.keys().size
+        //update the number of socket registered (for load balancing purposes)
+        this.numberOfChannel = this.selector.keys().size
+
+        //If no pause are required and that the selector is still open, schedule next tick
+        if(!this.shouldPause.value && !this.isClosed){
+            this.isInSelection.value = true
+
+            this.scheduleNextTick()
         }
     }
 
     /**
-     * Wake the NIO selector up, thus making registrations non-blocking
+     * Wake the NIO selector up if needed to allow registrations
      */
     fun wakeup(){
-        this.selector.wakeup()
+        if(this.isInSelection.compareAndSet(true,false)) {
+            this.selector.wakeup()
+        }
+    }
+
+    /**
+     * Set the shouldPause property and wake the selector
+     */
+    private fun pauseLoop(){
+        this.shouldPause.value = true
+        this.wakeup()
+    }
+
+    /**
+     * Set all the properties back to normal and try to schedule the next tick if it wasn't already. We must send the
+     * tick scheduling to the executor to acheive mutual exclusion between the possibly ongoing tick that could pause
+     * or not and the resumeLoop() call
+     */
+    private fun resumeLoop(){
+        this.isInSelection.value = true
+        this.shouldPause.value = false
+
+        this.thread.submit {
+            if(this.tickFuture.isDone){
+                this.scheduleNextTick()
+            }
+        }
     }
 
     /**
@@ -239,13 +302,45 @@ class Selector {
      *
      * @return NIO SelectionKey used by the SuspentionMap for registrations
      */
-    suspend fun register(channel : SelectableChannel, interest : Int, attachment : Any?) : SelectionKey{
+    fun register(channel : SelectableChannel, interest : Int, attachment : Any?) : SelectionKey{
         require(attachment is SuspentionMap)
-        val def = this.coroutineScope.async {
-            channel.register(this@Selector.selector,interest,attachment)
+
+        if(this.inRegister.getAndIncrement() == 0){
+            this.pauseLoop()
         }
-        this.selector.wakeup()
-        return def.await()
+
+        val sk = channel.register(this@Selector.selector,interest,attachment)
+
+        if(this.inRegister.decrementAndGet() == 0){
+            this.resumeLoop()
+        }
+
+        return sk
+    }
+
+    /**
+     * Update the interest of a `SelectionKey` with the given `interest`
+     *
+     * @param sk SelectionKey to update
+     * @param interest Interest to set
+     */
+    fun updateInterest(sk : SelectionKey, interest: Int){
+
+        if(this.inRegister.getAndIncrement() == 0){
+            this.pauseLoop()
+        }
+
+        try {
+            sk.interestOps(interest)
+        }catch (e : CancelledKeyException){
+            throw PeerClosedException()
+        }finally {
+            if(this.inRegister.decrementAndGet() == 0){
+                this.resumeLoop()
+            }
+        }
+
+
     }
 
     /**
@@ -257,8 +352,7 @@ class Selector {
                 (it.attachment() as SuspentionMap).close()
             }
             this.wakeup()
-            this.mainLoop.cancel()
-            this.thread.close()
+            this.thread.shutdownNow()
         }
     }
 

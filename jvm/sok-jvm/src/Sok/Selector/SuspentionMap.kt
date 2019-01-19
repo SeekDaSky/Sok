@@ -11,16 +11,16 @@ import java.nio.channels.SelectionKey
 import kotlin.Exception
 
 /**
- * A SuspentionMap will be used by the sockets to simply and efficiently use NIO Selectors.
+ * A SuspentionMap will be used by the sockets to simply and efficiently use the Selector class.
  *
- * The suspention/resumption is made basic coroutine suspention.
  * The map CAN ONLY ADD interests, the selector will take care of the un-register operations (using
  * the unsafeUnregister method). Every field is volatile (or immutable) because the object bounce from
  * thread to thread (socket/selector).
  *
- * As the registering of an interest for an undefined number of selection is supported, the SuspentionMap
- * also contains those ongoing requests. For details about the mechanism, please look at the Selector class
- * comments.
+ * In order to reduc the number of registrations, the SuspentionMap allow the registering of interest
+ * for an undefined number of time, those registrations are represented with the `SelectAlways` class.
+ * This kind of registration allow the developer to register a lambda to be executed by the `Selector` when
+ * an event comes, the lambda will return whether the interest should be unregistered.
  *
  * @property selector `Selector` managing this suspention map
  * @property channel NIO channel registered
@@ -56,13 +56,7 @@ internal class SuspentionMap(
     @Volatile
     var alwaysSelectConnect : SelectAlways? = null
 
-    val selectionKey: SelectionKey
-
-    init {
-        this.selectionKey = runBlocking(Dispatchers.Unconfined+this.exceptionHandler) {
-            this@SuspentionMap.selector.register(this@SuspentionMap.channel,0,this@SuspentionMap)
-        }
-    }
+    val selectionKey = this.selector.register(this@SuspentionMap.channel,0,this@SuspentionMap)
 
     /**
      * Register an interest for one selection
@@ -83,7 +77,6 @@ internal class SuspentionMap(
 
         this.interest.plusAssign(interest)
 
-
         val request = SelectAlways(operation)
 
         when(interest){
@@ -95,6 +88,7 @@ internal class SuspentionMap(
         }
 
         this.suspend(interest)
+
     }
 
     /**
@@ -104,39 +98,23 @@ internal class SuspentionMap(
 
         //track if an exception was thrown during the registration coroutine
         var exc : Throwable? = null
-        val job = this.selector.coroutineScope.launch {
-            //we have to try catch the whole block or else the exception is brought back to the executor, and das not gud
-            try {
 
-                //convert exception
-                try{
-                    this@SuspentionMap.selectionKey.interestOps(this@SuspentionMap.interest.value)
-                }catch (e : CancelledKeyException){
-                    throw PeerClosedException()
+        try {
+            suspendCancellableCoroutine<Boolean> {
+                when(interest){
+                    SelectionKey.OP_READ -> this@SuspentionMap.OP_READ = it
+                    SelectionKey.OP_WRITE -> this@SuspentionMap.OP_WRITE = it
+                    SelectionKey.OP_ACCEPT -> this@SuspentionMap.OP_ACCEPT = it
+                    SelectionKey.OP_CONNECT -> this@SuspentionMap.OP_CONNECT = it
+                    else -> throw IllegalArgumentException("The interest is not valid")
                 }
 
-                suspendCancellableCoroutine<Boolean> {
-                    when(interest){
-                        SelectionKey.OP_READ -> this@SuspentionMap.OP_READ = it
-                        SelectionKey.OP_WRITE -> this@SuspentionMap.OP_WRITE = it
-                        SelectionKey.OP_ACCEPT -> this@SuspentionMap.OP_ACCEPT = it
-                        SelectionKey.OP_CONNECT -> this@SuspentionMap.OP_CONNECT = it
-                        else -> throw IllegalArgumentException("The interest is not valid")
-                    }
-                }
-            }catch (e : Exception){
-                exc = e
-                this@SuspentionMap.exceptionHandler.handleException(e)
+                this.selector.updateInterest(this.selectionKey, this.interest.value)
             }
+        }catch (e : Exception){
+            exc = e
+            this@SuspentionMap.exceptionHandler.handleException(e)
         }
-
-        //wakeup the selector to let the registration coroutine execute
-        if(this.selector.isInSelection){
-            this.selector.wakeup()
-        }
-
-        //wait for it to finish
-        job.join()
 
         //if an exception was thrown, bring it back to the caller
         if(exc != null){
@@ -191,10 +169,8 @@ internal class SuspentionMap(
             this.OP_WRITE?.cancel(exception)
             this.OP_CONNECT?.cancel(exception)
 
-            //as they run on the selector scope, wakeup the selector to let them execute
-            if(this.selector.isInSelection){
-                this.selector.wakeup()
-            }
+            //as they run on the selector scope, wakeup the selector to let the continuation cancel and notify the selection key change
+            this.selector.wakeup()
         }
     }
 }
