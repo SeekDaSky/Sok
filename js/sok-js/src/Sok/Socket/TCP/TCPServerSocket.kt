@@ -52,8 +52,6 @@ actual class TCPServerSocket{
         this.socket = socket
 
         this.socket.on("connection"){ client ->
-            //pause the socket before everything
-            client.pause()
             this.acceptChannel.offer(Sok.Socket.TCP.TCPClientSocket(client))
         }
 

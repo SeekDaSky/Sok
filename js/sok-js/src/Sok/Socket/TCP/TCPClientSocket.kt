@@ -63,6 +63,8 @@ actual class TCPClientSocket{
      */
     private var readingContinuation : CancellableContinuation<Unit>? = null
 
+    private var registeredOperation : ((Buffer) -> Boolean)? = null
+
     /**
      * Node.js does not give us ways to get what option are set on TCP socket (but on UDP socket you can, go figure)
      * so we do it ourself
@@ -105,6 +107,13 @@ actual class TCPClientSocket{
             val exc = PeerClosedException()
             this.readingContinuation?.cancel(exc)
             this.internalExceptionHandler.handleException(exc)
+        }
+
+        /**
+         * Bind data handler
+         */
+        socket.on("data"){ buffer ->
+            this.handleData(buffer)
         }
 
         //start the write actor and bind the operation in case of failure (we close the socket)
@@ -168,10 +177,8 @@ actual class TCPClientSocket{
      *
      * @return number of byte copied
      */
-    private fun readInto(buffer : JSMultiplatformBuffer) : Int{
+    private fun readInto(buffer : JSMultiplatformBuffer, internalBuffer : Buffer?) : Int{
         if(buffer.remaining() == 0) throw BufferOverflowException()
-        //read from the socket, with a minimum or not
-        val internalBuffer : Buffer? = this.unshifted ?: this.socket.read()
 
         //if the there is no data to read, return -1, the caller will decide if this is normal or not
         if(internalBuffer == null){
@@ -184,6 +191,7 @@ actual class TCPClientSocket{
         //if we did not unshit data and that the buffer is small enough to fit in the MultiplatformBuffer, copy everything
         if(internalBuffer.length <= buffer.remaining() && this.indexInStream == 0){
             buffer.cursor += internalBuffer.copy(buffer.nativeBuffer(),buffer.cursor,0,internalBuffer.length)
+            this.unshifted = null
         }else{
             //transfer all the data we can
             val read = internalBuffer.copy(buffer.nativeBuffer(),buffer.cursor,this.indexInStream,min(internalBuffer.length,buffer.remaining()+this.indexInStream))
@@ -198,6 +206,11 @@ actual class TCPClientSocket{
             }
         }
 
+        //resume socket if needed
+        if(this.unshifted == null){
+            this.socket.resume()
+        }
+
         //compare the cursor before and after to know how much data was read
         return buffer.cursor - cursor
     }
@@ -208,7 +221,7 @@ actual class TCPClientSocket{
      *
      * @param operation lambda to call after each event
      */
-    private suspend fun registerReadable(operation : () -> Boolean ){
+    private suspend fun registerReadable(operation : (Buffer) -> Boolean ){
         /**
          * check internally unshifted buffer first, we must yield to preserve the execution order
          * this is a bit of a performance issue as suspentions on K/JS are EXPENSIVE but we muse keep
@@ -216,42 +229,29 @@ actual class TCPClientSocket{
          */
         if(this.unshifted != null){
             yield()
-        }
+            do{
+                val shouldContinue = operation.invoke(this.unshifted!!)
 
-        while(this.unshifted != null){
-            if(!operation.invoke()) return
-        }
+                if(!shouldContinue){
+                    return
+                }
 
+            }while (this.unshifted != null && shouldContinue)
+        }
 
         suspendCancellableCoroutine<Unit> {
+
             //store the continuation
             this.readingContinuation = it
-            socket.on("readable"){
-                //should we continue?
-                if(!operation.invoke()){
-                    //unregister everything
-                    this.readingContinuation = null
-                    socket.removeAllListeners("readable")
-                    it.resume(Unit)
-                }else{
-                    while(this.unshifted != null){
-                        if(!operation.invoke()){
-                            //unregister everything
-                            this.readingContinuation = null
-                            socket.removeAllListeners("readable")
-                            it.resume(Unit)
-                        }
-                    }
-                }
-            }
+
+            //store operation
+            this.registeredOperation = operation
+
             //if the continuation is cancelled, we have to unregister the listener on readable to prevent any unwanted call to the
             //operation lambda
             it.invokeOnCancellation {
                 this.readingContinuation = null
-                socket.removeAllListeners("readable")
-                Unit
             }
-            Unit
         }
     }
 
@@ -296,7 +296,7 @@ actual class TCPClientSocket{
              * we "unshifted" the node.js buffer, thus we can "readInto" multiple times before reaching the end of the buffer.
              */
             buffer.cursor = 0
-            while (this.readInto(buffer) != -1) {
+            if (this.readInto(buffer,it) != -1) {
                 total += buffer.cursor
                 val read = buffer.cursor
                 buffer.cursor = 0
@@ -341,7 +341,7 @@ actual class TCPClientSocket{
         var read = -1
         this.registerReadable {
             (buffer as JSMultiplatformBuffer)
-            read = this.readInto(buffer)
+            read = this.readInto(buffer,it)
             read == -1
         }
 
@@ -371,7 +371,7 @@ actual class TCPClientSocket{
 
         (buffer as JSMultiplatformBuffer)
         this.registerReadable {
-            val tmp = this.readInto(buffer)
+            val tmp = this.readInto(buffer,it)
             if(tmp != -1){
                 read += tmp
             }
@@ -500,6 +500,34 @@ actual class TCPClientSocket{
             }
 
             else -> false
+        }
+    }
+
+    /**
+     * Function called whe the data event is fired
+     */
+    private fun handleData(buffer : Buffer){
+        //if there os no one waiting for data, unshift and pause the socket
+        if(this.readingContinuation != null){
+            //execute the registered operation
+            do {
+                val shouldContinue = this.registeredOperation!!.invoke(buffer)
+
+                //the operation wants to unregister, resume coroutine and reset everything
+                if(!shouldContinue){
+                    this.readingContinuation!!.resume(Unit)
+                    this.readingContinuation = null
+                    this.registeredOperation = null
+                }
+            }while (this.unshifted != null && shouldContinue)
+
+            //if the unshifted buffer have is not null, this means we haven't read everything and should pause the socket
+            if(this.unshifted != null){
+                this.socket.pause()
+            }
+        }else{
+            this.unshifted = buffer
+            this.socket.pause()
         }
     }
 

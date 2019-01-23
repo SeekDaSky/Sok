@@ -141,11 +141,16 @@ class ClientTests {
             val client = createTCPClientSocket(address, port)
 
             var received = 0
-            client.bulkRead(allocMultiplatformBuffer(65_536)) { buffer, read ->
+            var lastRead = 0
+            val buf = allocMultiplatformBuffer(65_536)
+            client.bulkRead(buf) { buffer, read ->
+                lastRead = read
                 received += read
                 buffer.limit = min(data.size - received,buffer.capacity)
                 received != data.size
             }
+            buf.limit = lastRead+1
+            assertEquals(data.size.toByte(),buf[lastRead])
             assertEquals(data.size, received)
             client.close()
         }

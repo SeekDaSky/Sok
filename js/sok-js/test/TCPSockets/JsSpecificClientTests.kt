@@ -37,7 +37,7 @@ class JsSpecificClientTests{
             assertEquals(10,buf.cursor)
 
             buf.cursor = 0
-            val read = client.bulkRead(buf){_,read ->
+            val read = client.bulkRead(buf){_,_ ->
                 false
             }
 

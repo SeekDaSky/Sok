@@ -108,13 +108,13 @@ repositories {
 
 dependencies {
     // For common source
-    implementation 'seekdasky.sok:sok-common:0.21.1'
+    implementation 'seekdasky.sok:sok-common:0.22.0'
     // For JVM
-    implementation 'seekdasky.sok:sok-jvm:0.21.1'
+    implementation 'seekdasky.sok:sok-jvm:0.22.0'
     // For JS
-    implementation 'seekdasky.sok:sok-js:0.21.1'
+    implementation 'seekdasky.sok:sok-js:0.22.0'
     // For Native (please not that you must use Gradle 4.7)
-    implementation 'seekdasky.sok:sok-native-linux:0.21.1'
+    implementation 'seekdasky.sok:sok-native-linux:0.22.0'
 }
 ```
 
@@ -274,16 +274,11 @@ The only known behavior difference is that the `write` method can't throw a `Pee
 
 ## Plans for the future
 
- Sok is not feature complete or stable yet, a lot is to be done and feedback on the API is welcome. The plans for the future are:
+ Sok is not feature complete and is getting more and more stable. It is not advised to use Sok in production without a proper testing. Performances are decent but the suspending model implies a lot of register/unregister to the inner `Selector` which can lead to slow downs if doing intensive `read` calls. To address this problem and allow the use of Sok on latency-critical code, I will implement an "event-based" class that will work a bit like what `Node.js` have in its `Net` package.
 
-- ~~Migrate everything to Kotlin 1.3~~
-- ~~Publish the library on Bintray~~
-- Enhance the test suite
-- ~~Think of a real exception model~~
-- ~~Implement a way to set/get socket options~~
-- Implement UDP sockets
-- Fix JS performances (though I don't have any idea how)
-- Support Android target
+The event paradigm will allow fewer registrations, better memory consumption at the price of raw bandwidth and code clarity compared to the suspending version.
+
+I also plan to use the latest `Multiplatform`gradle plugin and `Kotlin DSL`but I want to wait for other projects to do so to see how this new plugin integrates with the current publishing flow.
 
 ## Contributing
 
