@@ -276,7 +276,7 @@ The only known behavior difference is that the `write` method can't throw a `Pee
 
  Sok is not feature complete and is getting more and more stable. It is not advised to use Sok in production without a proper testing. Performances are decent but the suspending model implies a lot of register/unregister to the inner `Selector` which can lead to slow downs if doing intensive `read` calls. To address this problem and allow the use of Sok on latency-critical code, I will implement an "event-based" class that will work a bit like what `Node.js` have in its `Net` package.
 
-The event paradigm will allow fewer registrations, better memory consumption at the price of raw bandwidth and code clarity compared to the suspending version.
+The event paradigm will allow fewer registrations and a better memory consumption at the price of a diminished raw bandwidth and code clarity compared to the suspending version.
 
 I also plan to use the latest `Multiplatform`gradle plugin and `Kotlin DSL`but I want to wait for other projects to do so to see how this new plugin integrates with the current publishing flow.
 
