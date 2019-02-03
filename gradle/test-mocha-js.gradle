@@ -4,14 +4,29 @@ task installDependenciesMochaNode(type: NpmTask, dependsOn: [npmInstall]) {
             "source-map-support@$source_map_support_version",
 	    "kotlin@$kotlin_version",
 	    "kotlinx-coroutines-core@$coroutine_version",
-	    "kotlinx-atomicfu@$atomicFU_version",
+	    //"kotlinx-atomicfu@$atomicFU_version",
+	    "kotlinx-atomicfu@0.11.12",
 	    "kotlin-test@$kotlin_version",
             '--no-save']
 }
 
-task testMochaNode(type: NodeTask, dependsOn: [compileTestKotlin2Js, installDependenciesMochaNode]) {
+task testMochaNode(type: NodeTask, dependsOn: [compileTestKotlinJs, installDependenciesMochaNode]) {
     script = file("$node.nodeModulesDir/mocha/bin/mocha")
-    args = ["$node.nodeModulesDir/sok-js_test.js", '--require', 'source-map-support/register', "--timeout", "10000"]
+    args = ["$compileTestKotlinJs.outputFile", '--require', 'source-map-support/register', "--timeout", "10000"]
 }
 
-test.dependsOn testMochaNode
+task copyCompiledFilesIntoNodeModules(type: Copy, dependsOn: [compileKotlinJs, compileTestKotlinJs]) {
+
+	from compileKotlinJs.destinationDir
+	from compileTestKotlinJs.destinationDir
+
+	into "$node.nodeModulesDir"
+}
+//make sure the tests are executed  after atomicfu transformed all files
+jsTest.mustRunAfter{
+    transformJsMainAtomicfu
+    transformJsTestAtomicfu
+}
+
+jsTest.dependsOn copyCompiledFilesIntoNodeModules
+jsTest.dependsOn testMochaNode

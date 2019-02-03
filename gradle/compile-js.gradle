@@ -1,24 +1,31 @@
-apply plugin: 'kotlin-platform-js'
-apply plugin: 'kotlinx-atomicfu'
+apply from: rootProject.file('gradle/node-js.gradle')
 
-dependencies {
-    compile "org.jetbrains.kotlinx:kotlinx-coroutines-core-js:$coroutine_version"
-    compileOnly "org.jetbrains.kotlinx:atomicfu-js:$atomicFU_version"
-    testCompile "org.jetbrains.kotlinx:atomicfu-js:$atomicFU_version"
-    
-    compile "org.jetbrains.kotlin:kotlin-stdlib-js:$kotlin_version"
-    testCompile "org.jetbrains.kotlin:kotlin-test-js:$kotlin_version"
-}
+kotlin {
+    targets {
+        fromPreset(presets.js, 'js')
+    }
 
-tasks.withType(compileKotlin2Js.getClass()) {
-    kotlinOptions {
-        moduleKind = "umd"
-        sourceMap = true
-        metaInfo = true
+    sourceSets {
+        jsMain.dependencies {
+            api "org.jetbrains.kotlinx:kotlinx-coroutines-core-js:$coroutine_version"
+            api "org.jetbrains.kotlinx:atomicfu-js:$atomicFU_version"
+            api kotlin("stdlib-js")
+        }
+
+        jsTest.dependencies {
+            api kotlin("test-js")
+        }
     }
 }
 
-compileKotlin2Js {
+//must be applied AFTER source set
+apply from: rootProject.file('gradle/test-mocha-js.gradle')
+
+compileKotlinJs {
+    kotlinOptions.metaInfo = true
+    kotlinOptions.sourceMap = true
+    kotlinOptions.moduleKind = 'umd'
+
     kotlinOptions {
         // drop -js suffix from outputFile
         def baseName = project.name - "-js"
@@ -26,8 +33,8 @@ compileKotlin2Js {
     }
 }
 
-//make sure the tests are executed  after atomicfu transformed all files
-test.mustRunAfter{
-    transformAtomicfuJsFiles
-    transformTestAtomicfuJsFiles
+compileTestKotlinJs {
+    kotlinOptions.metaInfo = true
+    kotlinOptions.sourceMap = true
+    kotlinOptions.moduleKind = 'umd'
 }

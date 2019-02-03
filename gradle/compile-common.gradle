@@ -1,10 +1,12 @@
-apply plugin: 'kotlin-platform-common'
+kotlin.sourceSets {
+    commonMain.dependencies {
+        api "org.jetbrains.kotlinx:kotlinx-coroutines-core-common:$coroutine_version"
+        api "org.jetbrains.kotlinx:atomicfu-common:$atomicFU_version"
+        api kotlin("stdlib-common")
+    }
 
-dependencies {
-    compile "org.jetbrains.kotlinx:kotlinx-coroutines-core-common:$coroutine_version"
-    compileOnly "org.jetbrains.kotlinx:atomicfu-common:$atomicFU_version"
-
-    compile "org.jetbrains.kotlin:kotlin-stdlib-common:$kotlin_version"
-    testCompile "org.jetbrains.kotlin:kotlin-test-common:$kotlin_version"
-    testCompile "org.jetbrains.kotlin:kotlin-test-annotations-common:$kotlin_version"
+    commonTest.dependencies{
+        api kotlin('test-common')
+        api kotlin('test-annotations-common')
+    }
 }

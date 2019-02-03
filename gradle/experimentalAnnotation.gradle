@@ -1,0 +1,10 @@
+//Disable annotation warning
+
+ext.experimentalAnnotations = [
+        "kotlin.Experimental",
+        "kotlin.experimental.ExperimentalTypeInference",
+        "kotlin.ExperimentalMultiplatform",
+        "kotlinx.coroutines.ExperimentalCoroutinesApi",
+        "kotlinx.coroutines.ObsoleteCoroutinesApi",
+        "kotlinx.coroutines.InternalCoroutinesApi",
+        "kotlin.ExperimentalUnsignedTypes"]

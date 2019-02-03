@@ -7,11 +7,3 @@ def module(String path) {
     include(name)
     project(":$name").projectDir = file(path)
 }
-
-module("common/sok-common")
-
-module("js/sok-js")
-
-module("jvm/sok-jvm")
-
-module("native/sok-native-linux")

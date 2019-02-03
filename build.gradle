@@ -6,8 +6,6 @@
     
     For some reason the native platform is not correctly uploaded to Bintray and must be uploaded manually
  */
-
-
 // Load repositories and build plugins
 buildscript {
    
@@ -20,7 +18,6 @@ buildscript {
     
     dependencies {
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-        classpath "org.jetbrains.kotlin:kotlin-native-gradle-plugin:$kotlin_native_version"
         classpath "org.jetbrains.kotlinx:atomicfu-gradle-plugin:$atomicFU_version"
         classpath "com.moowork.gradle:gradle-node-plugin:$gradle_node_version"
         classpath 'com.jfrog.bintray.gradle:gradle-bintray-plugin:1.+'
@@ -28,61 +25,41 @@ buildscript {
     }
 }
 
-
-// Make all projects use the same repositories
-allprojects {
-    repositories {
-        jcenter()
-        mavenCentral()
-	    maven { url "https://kotlin.bintray.com/kotlinx" }
-    }
+plugins {
+    id 'org.jetbrains.kotlin.multiplatform' version '1.3.20'
 }
 
-// Helper function to import correct build files
-static def platformOf(project) {
-    if (project.name.endsWith("-common")) return "common"
-    if (project.name.endsWith("-js")) return "js"
-    if (project.name.endsWith("-linux")) return "linux"
-    return "jvm"
+apply plugin: 'kotlinx-atomicfu'
+
+//load annotation warning disabling
+apply from: rootProject.file("gradle/experimentalAnnotation.gradle")
+
+repositories {
+    jcenter()
+    mavenCentral()
+    maven { url "https://kotlin.bintray.com/kotlinx" }
 }
 
-// Apply compile build files to subprojects
-configure(subprojects.findAll()) {
-    def platform = platformOf(it)
-    apply from: rootProject.file("gradle/compile-${platform}.gradle")
-}
+//import gradle files
+apply from: rootProject.file("gradle/compile-common.gradle")
+apply from: rootProject.file("gradle/compile-js.gradle")
+apply from: rootProject.file("gradle/compile-jvm.gradle")
+//apply from: rootProject.file("gradle/compile-linux.gradle")
+//apply from: rootProject.file('gradle/publish-npm-js.gradle')
 
-// Reconfigure source sets to avoid long "src/main/kotlin"
-configure(subprojects.findAll()) {
-    sourceSets {
-        main.kotlin.srcDirs = ['src']
-        test.kotlin.srcDirs = ['test']
-    }
-}
-
-// Configure the "expectedBy" statement
-configure(subprojects.findAll()) {
-    if(it.name != "sok-common"){
-        dependencies {
-                expectedBy project(':sok-common')
+kotlin {
+    configure(sourceSets) {
+        //if the name of the task is xxxMain, set sourceset to "src" else "test"
+        def srcDir = name.endsWith('Main') ? 'src' : 'test'
+        def platform = name[0..-5]
+        kotlin.srcDir "$platform/$srcDir"
+        languageSettings {
+            progressiveMode = true
+            experimentalAnnotations.each { useExperimentalAnnotation(it) }
         }
     }
 }
-
-// Suppress warnings for experimental features
-configure(subprojects.findAll()) {
-
-    tasks.withType(org.jetbrains.kotlin.gradle.tasks.AbstractKotlinCompile).all {
-        kotlinOptions.freeCompilerArgs += ["-Xuse-experimental=kotlin.ExperimentalUnsignedTypes",
-                                            "-Xuse-experimental=kotlinx.coroutines.ExperimentalCoroutinesApi",
-                                            "-Xuse-experimental=kotlin.Experimental"]
-
-    }
-}
-
-// Apply basic plugin
-apply plugin: 'base'
-
+/*
 // Configure the "clean" task
 clean.dependsOn gradle.includedBuilds.collect { it.task(':clean') }
 
@@ -112,26 +89,26 @@ dokka {
     includeNonPublic = false
     includes = ['PACKAGES.md']
     // map for JS, Native, and Common sources
-    makeLinkMapping(it, rootProject.file("common/$project.name-common"))
-    makeLinkMapping(it, rootProject.file("jvm/$project.name-jvm"))
-    makeLinkMapping(it, rootProject.file("js/$project.name-js"))
-    makeLinkMapping(it, rootProject.file("native/$project.name-native-linux"))
+    makeLinkMapping(it, rootProject.file("common"))
+    makeLinkMapping(it, rootProject.file("jvm"))
+    makeLinkMapping(it, rootProject.file("js"))
+    makeLinkMapping(it, rootProject.file("linux"))
     // source roots
     impliedPlatforms = ['JVM', 'JS', 'Native', 'Common']
     sourceRoot {
-        path = rootProject.file("common/$project.name-common/src")
+        path = rootProject.file("common/src")
         platforms = ['Common']
     }
     sourceRoot {
-        path = rootProject.file("jvm/$project.name-jvm/src")
+        path = rootProject.file("jvm/src")
         platforms = ['JVM']
     }
     sourceRoot {
-        path = rootProject.file("js/$project.name-js/src")
+        path = rootProject.file("js/src")
         platforms = ['JS']
     }
     sourceRoot {
-        path = rootProject.file("native/$project.name-native-linux/src")
+        path = rootProject.file("linux/src")
         platforms = ['Native']
     }
 
@@ -139,4 +116,4 @@ dokka {
         prefix = "Sok.Internal"
         suppress = true
     }
-}
+}*/

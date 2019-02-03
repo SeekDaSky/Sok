@@ -1,27 +1,30 @@
-
-apply plugin: 'kotlin-platform-jvm'
-apply plugin: 'jacoco'
-apply plugin: 'kotlinx-atomicfu'
-
 sourceCompatibility = 1.7
 targetCompatibility = 1.7
 
-dependencies {
-    compile "org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutine_version"
-    compileOnly "org.jetbrains.kotlinx:atomicfu:$atomicFU_version"
-    testCompile "org.jetbrains.kotlinx:atomicfu:$atomicFU_version"
+kotlin {
+    targets {
+        fromPreset(presets.jvm, 'jvm')
+    }
+    sourceSets {
+        jvmMain.dependencies {
+            api "org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutine_version"
+            api "org.jetbrains.kotlinx:atomicfu:$atomicFU_version"
+            api kotlin("stdlib")
+        }
 
-    compile "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
-    testCompile "org.jetbrains.kotlin:kotlin-test:$kotlin_version"
-    testCompile "org.jetbrains.kotlin:kotlin-test-junit:$kotlin_version"
-    testCompile "junit:junit:$junit_version"
+        jvmTest.dependencies {
+            api kotlin("test")
+            api kotlin("test-junit")
+            api "junit:junit:$junit_version"
+        }
+    }
 }
 
 // Configure logging for tests (and improve the console output, basic gradle test output is ugly as hell)
 def starttime = 0L
 def endtime = 0L
 def nbrOfTest = 0
-tasks.withType(Test) {
+jvmTest {
     //always run tests
     outputs.upToDateWhen { false }
 
@@ -58,9 +61,6 @@ tasks.withType(Test) {
     }
 }
 
-test.doLast {
+jvmTest.doLast {
     logger.lifecycle("\n\n\t\t\t ~~~~ $nbrOfTest test executed in "+(endtime-starttime)+"ms ~~~~\n")
 }
-
-// Run jacoco after tests (disable because jacoco do not play nicely with kotlin yet)
-//test.finalizedBy(jacocoTestReport)

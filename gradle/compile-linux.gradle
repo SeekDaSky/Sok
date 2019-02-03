@@ -1,20 +1,16 @@
-apply plugin: "kotlin-platform-native"
+kotlin {
+    targets {
+        fromPreset(presets.linuxX64, 'linux')
+    }
 
-dependencies {
-    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core-native:$coroutine_version"
-    implementation "org.jetbrains.kotlinx:atomicfu-native:$atomicFU_version"
-
-    compile "org.jetbrains.kotlin:kotlin-stdlib-native:$kotlin_version"
-}
-
-group "seekdasky.sok"
-version sok_version
-
-sourceSets {
-    main {
-        component {
-            targets = ["linux_x64"]
-            outputKinds = [KLIBRARY]
+    sourceSets{
+        linuxMain.dependencies{
+            api "org.jetbrains.kotlinx:kotlinx-coroutines-core-native:$coroutine_version"
+            api "org.jetbrains.kotlinx:atomicfu-native:$atomicFU_version"
         }
+
+        linuxMain{ dependsOn commonMain }
+
+        linuxTest{}
     }
 }
