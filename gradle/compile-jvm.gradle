@@ -1,6 +1,5 @@
 
 apply plugin: 'kotlin-platform-jvm'
-apply plugin: 'jacoco'
 apply plugin: 'kotlinx-atomicfu'
 
 sourceCompatibility = 1.7

@@ -1,11 +1,9 @@
 package Sok.Selector
 
 import Sok.Exceptions.PeerClosedException
-import Sok.Exceptions.handleException
 import kotlinx.atomicfu.AtomicRef
 import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.*
 import java.nio.channels.CancelledKeyException
 import java.nio.channels.SelectableChannel
 import java.nio.channels.SelectionKey
@@ -13,8 +11,7 @@ import java.nio.channels.Selector
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
+import kotlin.coroutines.*
 import kotlin.math.min
 
 /**
@@ -154,7 +151,10 @@ class Selector {
         //update state
         this.isInSelection.value = false
 
-        //if the selection returns, it means that we have movement on the channels or that the registering actor woke the selector up
+        //create the sync barrier, this allows all the "selectAlways" requests to be dispatched in the main coroutine dispatcher
+        //and synchronize with their completion efficiently
+        val barrier = CountDownLatch(this.selector.selectedKeys().size)
+
         for(it in this.selector.selectedKeys()) {
             //get the suspention map
             val suspentionMap = it.attachment() as SuspentionMap
@@ -171,19 +171,27 @@ class Selector {
                     //if not, unregister then resume the coroutine
                     suspentionMap.unsafeUnregister(SelectionKey.OP_READ)
                     cont.resume(true)
+
+                    //notify completion (useless in the case of selectOnce requests but mandatory)
+                    barrier.countDown()
                 }else {
-                    try{
-                        val request = suspentionMap.alwaysSelectRead!!
-                        //if the operation returns false, we can unregister
-                        if (!request.operation()) {
+                    Dispatchers.Default.dispatch(EmptyCoroutineContext, Runnable {
+                        try{
+                            val request = suspentionMap.alwaysSelectRead!!
+                            //if the operation returns false, we can unregister
+                            if (!request.operation()) {
+                                suspentionMap.unsafeUnregister(SelectionKey.OP_READ)
+                                cont.resume(true)
+                            }
+                        }catch (e : Exception){
+                            //propagate the exception
                             suspentionMap.unsafeUnregister(SelectionKey.OP_READ)
-                            cont.resume(true)
+                            cont.resumeWithException(e)
+                        }finally {
+                            //notify completion
+                            barrier.countDown()
                         }
-                    }catch (e : Exception){
-                        //propagate the exception
-                        suspentionMap.unsafeUnregister(SelectionKey.OP_READ)
-                        cont.resumeWithException(e)
-                    }
+                    })
                 }
             }
 
@@ -192,17 +200,24 @@ class Selector {
                 if(suspentionMap.alwaysSelectWrite == null) {
                     suspentionMap.unsafeUnregister(SelectionKey.OP_WRITE)
                     cont.resume(true)
+
+                    barrier.countDown()
                 }else {
-                    try {
-                        val request = suspentionMap.alwaysSelectWrite!!
-                        if (!request.operation()) {
+                    Dispatchers.Default.dispatch(EmptyCoroutineContext, Runnable {
+                        try {
+                            val request = suspentionMap.alwaysSelectWrite!!
+                            if (!request.operation()) {
+                                suspentionMap.unsafeUnregister(SelectionKey.OP_WRITE)
+                                cont.resume(true)
+                            }
+                        }catch (e : Exception){
                             suspentionMap.unsafeUnregister(SelectionKey.OP_WRITE)
-                            cont.resume(true)
+                            cont.resumeWithException(e)
+                        }finally {
+                            barrier.countDown()
                         }
-                    }catch (e : Exception){
-                        suspentionMap.unsafeUnregister(SelectionKey.OP_WRITE)
-                        cont.resumeWithException(e)
-                    }
+
+                    })
                 }
             }
             if (it.isValid && it.isAcceptable) {
@@ -210,17 +225,23 @@ class Selector {
                 if(suspentionMap.alwaysSelectAccept == null) {
                     suspentionMap.unsafeUnregister(SelectionKey.OP_ACCEPT)
                     cont.resume(true)
+
+                    barrier.countDown()
                 }else {
-                    try {
-                        val request = suspentionMap.alwaysSelectAccept!!
-                        if (!request.operation()) {
+                    Dispatchers.Default.dispatch(EmptyCoroutineContext, Runnable {
+                        try {
+                            val request = suspentionMap.alwaysSelectAccept!!
+                            if (!request.operation()) {
+                                suspentionMap.unsafeUnregister(SelectionKey.OP_ACCEPT)
+                                cont.resume(true)
+                            }
+                        }catch (e : Exception){
                             suspentionMap.unsafeUnregister(SelectionKey.OP_ACCEPT)
-                            cont.resume(true)
+                            cont.resumeWithException(e)
+                        }finally {
+                            barrier.countDown()
                         }
-                    }catch (e : Exception){
-                        suspentionMap.unsafeUnregister(SelectionKey.OP_ACCEPT)
-                        cont.resumeWithException(e)
-                    }
+                    })
                 }
             }
             if (it.isValid && it.isConnectable) {
@@ -228,26 +249,33 @@ class Selector {
                 if(suspentionMap.alwaysSelectConnect == null) {
                     suspentionMap.unsafeUnregister(SelectionKey.OP_CONNECT)
                     cont.resume(true)
+
+                    barrier.countDown()
                 }else {
-                    try {
-                        val request = suspentionMap.alwaysSelectConnect!!
-                        if (!request.operation()) {
+                    Dispatchers.Default.dispatch(EmptyCoroutineContext, Runnable {
+                        try {
+                            val request = suspentionMap.alwaysSelectConnect!!
+                            if (!request.operation()) {
+                                suspentionMap.unsafeUnregister(SelectionKey.OP_CONNECT)
+                                cont.resume(true)
+                            }
+                        }catch (e : Exception){
                             suspentionMap.unsafeUnregister(SelectionKey.OP_CONNECT)
-                            cont.resume(true)
+                            cont.resumeWithException(e)
+                        }finally {
+                            barrier.countDown()
                         }
-                    }catch (e : Exception){
-                        suspentionMap.unsafeUnregister(SelectionKey.OP_CONNECT)
-                        cont.resumeWithException(e)
-                    }
+                    })
                 }
-            } else{
-                continue
             }
 
         }
 
         //clear keys
         this.selector.selectedKeys().clear()
+
+        //await for everything to complete
+        barrier.await()
 
         //update the number of socket registered (for load balancing purposes)
         this.numberOfChannel = this.selector.keys().size

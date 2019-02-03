@@ -174,7 +174,9 @@ suspend fun write(buffer: MultiplatformBuffer) : Boolean
 suspend fun bulkRead(buffer : MultiplatformBuffer, operation : (buffer : MultiplatformBuffer, read : Int) -> Boolean) : Long
 ```
 
- The method will suspend the calling coroutine and execute the `operation`every time there is data to be read. The `operation`will take as parameter the buffer containing the data (with its cursor set to 0) and the amount of data, the operation must return `true` if the loop should continue, `false` if the method should return. the `operation` MUST not be computation intensive or blocking as Sok execute it synchronously, thus blocking other sockets while doing so.
+ The method will suspend the calling coroutine and execute the `operation`every time there is data to be read. The `operation`will take as parameter the buffer containing the data (with its cursor set to 0) and the amount of data, the operation must return `true` if the loop should continue, `false` if the method should return.
+
+the `operation` MUST not be computation intensive or blocking as Sok waits for all the ongoing `operations` to be complete before fetching new events. All `operation` execution are done in parallel so multiple `bulkRead` from different sockets wont block each other and scale quite well.
 
  The use case imagined for this method is the following:
 
@@ -196,6 +198,10 @@ while(!socket.isClosed){
     }
 }
 ```
+
+
+
+**Performance note**: as `bulkRead` parallelize `operations`, there is a task dispatch latency that can limit the max bandwidth available, this is scalable and suitable for internet communications but might be a problem for local network communications, in which case you should use `read` as it implement a fast-path, improving maximum bandwidth.
 
 ## The Buffer class
 
