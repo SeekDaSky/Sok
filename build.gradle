@@ -44,8 +44,21 @@ repositories {
 apply from: rootProject.file("gradle/compile-common.gradle")
 apply from: rootProject.file("gradle/compile-js.gradle")
 apply from: rootProject.file("gradle/compile-jvm.gradle")
-//apply from: rootProject.file("gradle/compile-linux.gradle")
+apply from: rootProject.file("gradle/compile-linux.gradle")
+apply from: rootProject.file('gradle/publish-bintray.gradle')
 //apply from: rootProject.file('gradle/publish-npm-js.gradle')
+
+group "seekdasky.sok"
+version "$sok_version"
+
+//rename kotlin metadata to sok-common
+kotlin{
+    configure(targets["metadata"]){
+        mavenPublication{
+            artifactId = "sok-common"
+        }
+    }
+}
 
 kotlin {
     configure(sourceSets) {

@@ -3,7 +3,11 @@ targetCompatibility = 1.7
 
 kotlin {
     targets {
-        fromPreset(presets.jvm, 'jvm')
+        fromPreset(presets.jvm, 'jvm'){
+            mavenPublication {
+                artifactId = 'sok-jvm'
+            }
+        }
     }
     sourceSets {
         jvmMain.dependencies {

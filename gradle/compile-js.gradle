@@ -2,7 +2,11 @@ apply from: rootProject.file('gradle/node-js.gradle')
 
 kotlin {
     targets {
-        fromPreset(presets.js, 'js')
+        fromPreset(presets.js, 'js'){
+            mavenPublication{
+                artifactId = 'sok-js'
+            }
+        }
     }
 
     sourceSets {

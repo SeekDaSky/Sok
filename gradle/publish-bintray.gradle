@@ -4,11 +4,12 @@ apply plugin: 'com.jfrog.bintray'
 
 apply from: project.rootProject.file('gradle/maven-central.gradle')
 
-def isNative = project.name.contains("-native-")
+def isNative() { return project.name.contains("linux") }
 
+/*
 task sourcesJar(type: Jar) {
     classifier = 'sources'
-    if (!isNative) {
+    if (!isNative()) {
         from sourceSets.main.allSource
     }
 
@@ -16,8 +17,8 @@ task sourcesJar(type: Jar) {
         // add common source, too
         from rootProject.file("common/$project.name-common/src")
     }
-}
-
+}*/
+/*
 publishing {
     publications {
         maven(MavenPublication) {
@@ -31,7 +32,7 @@ publishing {
             pom.withXml(configureMavenCentralMetadata)
         }
     }
-}
+}*/
 
 bintray {
     user = project.hasProperty('bintrayUser') ? project.property('bintrayUser') : System.getenv('BINTRAY_USER')
@@ -55,7 +56,7 @@ bintrayUpload.dependsOn publishToMavenLocal
 
 
 // Required to disable publish of metadata for all but native
-if (!isNative) {
+if (!isNative()) {
     afterEvaluate {
         publishing.publications.each { pub ->
             pub.moduleDescriptorGenerator = null

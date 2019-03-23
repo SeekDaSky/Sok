@@ -1,6 +1,10 @@
 kotlin {
     targets {
-        fromPreset(presets.linuxX64, 'linux')
+        fromPreset(presets.linuxX64, 'linux'){
+            mavenPublication {
+                artifactId = 'sok-native-linux'
+            }
+        }
     }
 
     sourceSets{
