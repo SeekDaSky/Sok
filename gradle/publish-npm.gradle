@@ -14,19 +14,22 @@ def distTag(version) {
     return "latest"
 }
 
-def npmTemplateDir = file("$projectDir/npm")
-def npmDeployDir = file("$buildDir/npm")
+def npmTemplateDir = file("$projectDir/js/npm")
+def npmDeployDir = file("$buildDir/js/npm")
 def npmDeployTag = distTag(version)
 
 def authToken = prop("npmjs.auth.token", "")
 def dryRun = prop("dryRun", "false")
 
 // Note: publish transformed files using dependency on sourceSets.main.output
-task preparePublishNpm(type: Copy) {
+task preparePublishNpm(type: Copy, dependsOn: [compileKotlinJs, compileTestKotlinJs]) {
     from(npmTemplateDir) {
         expand (project.properties)
     }
-    from(sourceSets.main.output)
+
+    from compileKotlinJs.destinationDir
+    from compileTestKotlinJs.destinationDir
+
     into npmDeployDir
 }
 
@@ -44,4 +47,10 @@ task publishNpm(type: NpmTask, dependsOn: [preparePublishNpm]) {
             args = deployArgs
         }
     }
+}
+
+//make sure the tests are executed  after atomicfu transformed all files
+preparePublishNpm.mustRunAfter{
+    transformJsMainAtomicfu
+    transformJsTestAtomicfu
 }

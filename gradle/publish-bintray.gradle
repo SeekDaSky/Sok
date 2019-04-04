@@ -4,41 +4,32 @@ apply plugin: 'com.jfrog.bintray'
 
 apply from: project.rootProject.file('gradle/maven-central.gradle')
 
-def isNative() { return project.name.contains("linux") }
+task stubJavadoc(type: Jar) {
+    classifier = 'javadoc'
+}
 
-/*
-task sourcesJar(type: Jar) {
-    classifier = 'sources'
-    if (!isNative()) {
-        from sourceSets.main.allSource
-    }
+task emptyJar(type: Jar) {
+}
 
-    if (project.name != "sok-common") {
-        // add common source, too
-        from rootProject.file("common/$project.name-common/src")
-    }
-}*/
-/*
 publishing {
-    publications {
-        maven(MavenPublication) {
-            if (!isNative) {
-                from components.java
-            }
+    publications.all {
 
-            artifact sourcesJar
-            groupId "seekdasky.sok"
-            version sok_version
-            pom.withXml(configureMavenCentralMetadata)
-        }
+        it.version = "$sok_version"
+        it.groupId =  "seekdasky.sok"
+
+        pom.withXml(configureMavenCentralMetadata)
     }
-}*/
+}
 
 bintray {
     user = project.hasProperty('bintrayUser') ? project.property('bintrayUser') : System.getenv('BINTRAY_USER')
     key = project.hasProperty('bintrayApiKey') ? project.property('bintrayApiKey') : System.getenv('BINTRAY_API_KEY')
     override = true // for multi-platform Kotlin/Native publishing
-    publications = ['maven']
+    //workaround for multiplatform plugin
+    publications = project.publishing.publications.collect {
+        println("Uploading artifact '$it.groupId:$it.artifactId:$it.version' from publication '$it.name'")
+        it.name
+    }
     pkg {
         licenses = ['MIT']
         name = 'sok'
@@ -54,12 +45,20 @@ bintray {
 // Required for K/N publishing
 bintrayUpload.dependsOn publishToMavenLocal
 
-
 // Required to disable publish of metadata for all but native
-if (!isNative()) {
-    afterEvaluate {
-        publishing.publications.each { pub ->
-            pub.moduleDescriptorGenerator = null
-        }
+kotlin.targets.all { target ->
+    def publication = publishing.publications.findByName(target.name)
+
+    if (publication != null) {
+        publication.artifact stubJavadoc
+        //unable metadata on all platforms for now
+        //if (target.platformType.name != 'native') {
+            publication.moduleDescriptorGenerator = null
+            tasks.matching { it.name == "generateMetadataFileFor${name.capitalize()}Publication" }.all {
+                onlyIf { false }
+            }
+        //} else {
+            //publication.artifact emptyJar
+        //}
     }
 }
