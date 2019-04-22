@@ -17,7 +17,6 @@ There is no plan to support Windows or OSX/iOS platforms for now
 Your project should meet the following requirement for Sok to work:
 
 - Kotlin 1.3
-- Gradle 4.7 (for Native projects)
 
  **Sok is still in its early stage of development, there is still a lot to be done and you will find the [list here](#plans-for-the-future)** 
 
@@ -108,17 +107,17 @@ repositories {
 
 dependencies {
     // For common source
-    implementation 'seekdasky.sok:sok-common:0.22.0'
+    implementation 'seekdasky.sok:sok-common:0.22.1'
     // For JVM
-    implementation 'seekdasky.sok:sok-jvm:0.22.0'
+    implementation 'seekdasky.sok:sok-jvm:0.22.1'
     // For JS
-    implementation 'seekdasky.sok:sok-js:0.22.0'
-    // For Native (please not that you must use Gradle 4.7)
-    implementation 'seekdasky.sok:sok-native-linux:0.22.0'
+    implementation 'seekdasky.sok:sok-js:0.22.1'
+    // For Native
+    implementation 'seekdasky.sok:sok-native-linux:0.22.1'
 }
 ```
 
- Sok is not available on jCenter for now. If you use Sok on native project you MUST use Gradle 4.7 because of incompatibilities in the Gadle metadata format between each version.
+ Sok is not available on jCenter for now. If you use Sok on native project, Gradle metadata are disabled as they are not yet stable and that I can't migrate to Gradle 5.3 (yet).
 
 ## The Server class
 
