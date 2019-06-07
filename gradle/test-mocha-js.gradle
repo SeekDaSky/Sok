@@ -3,14 +3,20 @@ task installDependenciesMochaNode(type: NpmTask, dependsOn: [npmInstall]) {
             "mocha@$mocha_version",
             "source-map-support@$source_map_support_version",
 	    "kotlin@$kotlin_version",
-	    "kotlinx-coroutines-core@$coroutine_version",
-	    //"kotlinx-atomicfu@$atomicFU_version",
-	    "kotlinx-atomicfu@0.11.12",
+	    "kotlinx-coroutines-core@$coroutine_version-SNAPSHOT",
 	    "kotlin-test@$kotlin_version",
             '--no-save']
 }
 
-task testMochaNode(type: NodeTask, dependsOn: [compileTestKotlinJs, installDependenciesMochaNode]) {
+task copyAtomicFUIntoModules(type: Copy, dependsOn: [configurations.jsDefault]){
+	outputs.upToDateWhen {false}
+	from {
+		configurations.jsDefault.filter{ it.path.contains("atomicfu")}.collect { zipTree(it) }
+	}
+	into "$node.nodeModulesDir"
+}
+
+task testMochaNode(type: NodeTask, dependsOn: [compileTestKotlinJs, installDependenciesMochaNode, copyAtomicFUIntoModules]) {
     script = file("$node.nodeModulesDir/mocha/bin/mocha")
     args = ["$compileTestKotlinJs.outputFile", '--require', 'source-map-support/register', "--timeout", "10000", "--exit"]
 }
