@@ -3,7 +3,7 @@ task installDependenciesMochaNode(type: NpmTask, dependsOn: [npmInstall]) {
             "mocha@$mocha_version",
             "source-map-support@$source_map_support_version",
 	    "kotlin@$kotlin_version",
-	    "kotlinx-coroutines-core@$coroutine_version-SNAPSHOT",
+	    "kotlinx-coroutines-core@$coroutine_version",
 	    "kotlin-test@$kotlin_version",
             '--no-save']
 }
