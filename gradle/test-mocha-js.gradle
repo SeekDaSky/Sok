@@ -12,7 +12,7 @@ task installDependenciesMochaNode(type: NpmTask, dependsOn: [npmInstall]) {
 
 task testMochaNode(type: NodeTask, dependsOn: [compileTestKotlinJs, installDependenciesMochaNode]) {
     script = file("$node.nodeModulesDir/mocha/bin/mocha")
-    args = ["$compileTestKotlinJs.outputFile", '--require', 'source-map-support/register', "--timeout", "10000"]
+    args = ["$compileTestKotlinJs.outputFile", '--require', 'source-map-support/register', "--timeout", "10000", "--exit"]
 }
 
 task copyCompiledFilesIntoNodeModules(type: Copy, dependsOn: [compileKotlinJs, compileTestKotlinJs]) {

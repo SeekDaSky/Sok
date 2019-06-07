@@ -27,7 +27,6 @@ bintray {
     override = true // for multi-platform Kotlin/Native publishing
     //workaround for multiplatform plugin
     publications = project.publishing.publications.collect {
-        println("Uploading artifact '$it.groupId:$it.artifactId:$it.version' from publication '$it.name'")
         it.name
     }
     pkg {

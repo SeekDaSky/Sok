@@ -186,6 +186,7 @@ class ExceptionsTests {
                         isPlatformJS = true
                         bufSize = 65_654*10
                     }
+
                     client4.write(allocMultiplatformBuffer(bufSize))
 
                     //Node.js can't give us a bloody thing about the result of the write operation, we can not test it
@@ -198,8 +199,9 @@ class ExceptionsTests {
             }
             channel.send(true)
             c4.join()
-            //ffs Node.js
-            yield()
+            //we must yield to let the server close the socket, delay is used as the JS dispatcher is might not
+            //actually yield to a next tick tight now
+            delay(10)
             client4.close()
 
             job.join()
