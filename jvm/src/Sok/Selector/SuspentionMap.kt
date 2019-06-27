@@ -118,7 +118,7 @@ internal class SuspentionMap(
 
         //if an exception was thrown, bring it back to the caller
         if(exc != null){
-            throw exc!!
+            throw exc
         }
     }
 

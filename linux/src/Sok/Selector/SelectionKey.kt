@@ -3,9 +3,11 @@ package Sok.Selector
 import Sok.Exceptions.*
 import platform.posix.*
 import kotlinx.atomicfu.atomic
-import kotlin.experimental.or
-import kotlin.coroutines.*
+import kotlinx.cinterop.*
 import kotlinx.coroutines.*
+import platform.linux.EPOLLIN
+import platform.linux.EPOLLOUT
+import platform.linux.epoll_event
 
 /**
  * A `SelectionKey` is generated when a socket is registered to a selector. It is used to perform the suspention
@@ -39,22 +41,26 @@ internal class SelectionKey(val socket : Int,
     //object containing the operation to call in case of a SelectAlways
     var alwaysSelectRead : SelectAlways? = null
 
+    //epoll struct attached to this socket
+    val epollEvent = nativeHeap.alloc<epoll_event>().apply {
+        data.fd = this@SelectionKey.socket
+    }
+
     /**
      * Return the events that the `SelectionKey` is interested in as defined in [poll.h](https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/poll.h)
      *
      * @return short value representing the key interests
      */
-    fun getPollEvents() : Short{
+    fun getPollEvents() : UInt{
         require(!this.isClosed.value)
 
-        var e : Short = 0
+        var e : UInt = 0.toUInt()
         if(readRegistered.value){
-            e = e.or(POLLIN.toShort())
+            e = e.or(EPOLLIN.toUInt())
         }
         if(writeRegistered.value){
-            e = e.or(POLLOUT.toShort())
+            e = e.or(EPOLLOUT.toUInt())
         }
-
         return e
     }
 
@@ -79,6 +85,7 @@ internal class SelectionKey(val socket : Int,
                     }
                 }
 
+                this.notifyInterestUpdate()
             }
         //when an exception is thrown we want the socket exception handler to know and we also want the exception to be thrown back to the caller
         }catch (e : Exception){
@@ -111,6 +118,8 @@ internal class SelectionKey(val socket : Int,
                     }
                 }
 
+                this.notifyInterestUpdate()
+
             }
         //when an exception is thrown we want the socket exception handler to know and we also want the exception to be thrown back to the caller
         }catch (e : Exception){
@@ -137,6 +146,17 @@ internal class SelectionKey(val socket : Int,
                 this.OP_WRITE = null
             }
         }
+
+        if(!this.isClosed.value){
+            this.notifyInterestUpdate()
+        }
+    }
+
+    /**
+     * Notify the selector it must call epoll_ctl to update socket interests
+     */
+    fun notifyInterestUpdate(){
+        this.selector.notifyInterestUpdate(this)
     }
 
     /**
@@ -160,6 +180,8 @@ internal class SelectionKey(val socket : Int,
 
             //close native socket
             close(this.socket)
+
+            nativeHeap.free(this.epollEvent)
         }
 
     }
@@ -170,14 +192,14 @@ internal class SelectionKey(val socket : Int,
  *
  * @property interest raw interest value defined in poll.h
  */
-enum class Interests(val interest : Short){
+enum class Interests(val interest : Int){
     /**
      * Equivalent to linux POLLIN event, fired if there is data to read or a socket to accept
      */
-    OP_READ(POLLIN.toShort()),
+    OP_READ(EPOLLIN),
 
     /**
      * Equivalent to linux POLLOUT event, fired when the socket is readable
      */
-    OP_WRITE(POLLOUT.toShort())
+    OP_WRITE(EPOLLOUT)
 }

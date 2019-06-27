@@ -9,6 +9,7 @@ import kotlin.experimental.and
 import kotlinx.coroutines.*
 import kotlin.coroutines.*
 import Sok.Exceptions.*
+import platform.linux.*
 
 /**
  * As Companion objects are frozen by default on K/N, we have to move the actual data
@@ -94,10 +95,11 @@ class Selector private constructor() {
             this._isInSelection.value = value
         }
 
-    private var pollArrayStruct = nativeHeap.allocArray<pollfd>(1)
-    private var allocatedStructs = 1
 
-    private val registeredSockets = mutableListOf<SelectionKey>()
+    private val NBR_SOCKET_PER_TICK = 64;
+    private val epollStruct = nativeHeap.allocArray<epoll_event>(NBR_SOCKET_PER_TICK)
+    private var epollFD = 0
+    private val selectionKeys = mutableMapOf<Int,SelectionKey>()
 
     private val sleepContinuation: AtomicRef<CancellableContinuation<Unit>?> = atomic(null)
 
@@ -110,10 +112,11 @@ class Selector private constructor() {
 
     private fun start() {
         if(this.isStarted.compareAndSet(false,true)){
+            this.epollFD = epoll_create1(0);
             this.loop = _defaultScope.value.launch(this.internalExceptionHandler) {
                 while (!this@Selector.isClosed) {
 
-                    if(this@Selector.registeredSockets.size != 0){
+                    if(!this@Selector.selectionKeys.isEmpty()){
                         this@Selector.select(1)
                         //allow continuations to execute
                         yield()
@@ -128,7 +131,7 @@ class Selector private constructor() {
     }
 
     /**
-     * register a socket to the sleector and return the created selection key
+     * register a socket to the selector and return the created selection key
      */
     internal fun register(socket: Int): SelectionKey {
         require(!this.isClosed)
@@ -138,7 +141,10 @@ class Selector private constructor() {
         }
 
         val sk = SelectionKey(socket, this)
-        this.registeredSockets.add(sk)
+        epoll_ctl(this.epollFD, EPOLL_CTL_ADD,socket,sk.epollEvent.ptr)
+        this.selectionKeys[socket] = sk
+
+        //this.registeredSockets.add(sk)
         val cont = this.sleepContinuation.getAndSet(null)
         if(cont != null){
             cont.resume(Unit)
@@ -146,12 +152,17 @@ class Selector private constructor() {
         return sk
     }
 
+    internal fun notifyInterestUpdate(selectionKey : SelectionKey){
+        selectionKey.epollEvent.events = selectionKey.getPollEvents()
+        epoll_ctl(this.epollFD, EPOLL_CTL_MOD,selectionKey.socket,selectionKey.epollEvent.ptr)
+    }
+
     /**
      * Unregister a sleection key from the selector
      */
     internal fun unregister(selectionKey : SelectionKey){
         if(!this.isClosed){
-            this.registeredSockets.remove(selectionKey)
+            epoll_ctl(this.epollFD, EPOLL_CTL_DEL,selectionKey.socket,null)
         }
     }
 
@@ -165,25 +176,8 @@ class Selector private constructor() {
             throw Exception("Selector already in selection")
         }
 
-
-        //if the number of registered socket changed, realloc the memory (I could not make realloc work so I just free/alloc). TODO: make this damned realloc work
-        if (this.registeredSockets.size > this.allocatedStructs) {
-            nativeHeap.free(this.pollArrayStruct)
-            this.pollArrayStruct = nativeHeap.allocArray<pollfd>(this.registeredSockets.size)
-            this.allocatedStructs = this.registeredSockets.size
-        }
-
-        //update all the structs, first iterate through the registered sockets, then register the wakeup file descriptor
-        for (i in (0 until this.registeredSockets.size)) {
-            with(this.pollArrayStruct[i]) {
-                fd = this@Selector.registeredSockets[i].socket
-                events = this@Selector.registeredSockets[i].getPollEvents()
-                revents = 0
-            }
-        }
-
         //perform call
-        val result = poll(this.pollArrayStruct, this.registeredSockets.size.toULong(), timeout)
+        val result = epoll_wait(this.epollFD, this.epollStruct,this.NBR_SOCKET_PER_TICK,timeout)
 
         //update state
         this.isInSelection = false
@@ -194,20 +188,11 @@ class Selector private constructor() {
         }
 
         //iterate through the registered sockets and
-        for (i in (0 until this.registeredSockets.size)) {
-            val struct: pollfd = this.pollArrayStruct[i].reinterpret()
-            val sk : SelectionKey
-            try {
-                sk = this@Selector.registeredSockets[i]
+        for (i in (0 until result)) {
+            val struct: epoll_event = this.epollStruct[i].reinterpret()
+            val sk = this@Selector.selectionKeys[struct.data.fd]!!
 
-                if(sk.socket != struct.fd) throw Exception("File descriptor mismatch")
-            }catch (e : Exception){
-                //can happen if the socket unregistered while the selector is polling, if so we cancel and poll again (with the correct sockets)
-                break
-            }
-
-
-            if (struct.revents.and(POLLIN.toShort()) == POLLIN.toShort()) {
+            if (struct.events.and(EPOLLIN.toUInt()) == EPOLLIN.toUInt()) {
                 val cont = sk.OP_READ!!
                 if (sk.alwaysSelectRead == null) {
                     //if not, unregister then resume the coroutine
@@ -228,7 +213,7 @@ class Selector private constructor() {
                 }
             }
 
-            if (struct.revents.and(POLLOUT.toShort()) == POLLOUT.toShort()) {
+            if (struct.events.and(EPOLLOUT.toUInt()) == EPOLLOUT.toUInt()) {
                 val cont = sk.OP_WRITE!!
                 if (sk.alwaysSelectWrite == null) {
                     //if not, unregister then resume the coroutine
@@ -249,7 +234,7 @@ class Selector private constructor() {
                 }
             }
 
-            if (struct.revents.and(POLLHUP.toShort()) == POLLHUP.toShort() || struct.revents.and(POLLERR.toShort()) == POLLERR.toShort()) {
+            if (struct.events.and(EPOLLHUP.toUInt()) == EPOLLHUP.toUInt() || struct.events.and(EPOLLERR.toUInt()) == EPOLLERR.toUInt()) {
                 sk.close(PeerClosedException())
             }
         }
@@ -257,12 +242,12 @@ class Selector private constructor() {
 
     suspend fun close() {
         if (this._isClosed.compareAndSet(false, true)) {
-            this.registeredSockets.forEach{
-                it.close()
+            this.selectionKeys.forEach{
+                it.value.close()
             }
             this.sleepContinuation.value?.cancel()
             this.loop?.join()
-            nativeHeap.free(this.pollArrayStruct)
+            nativeHeap.free(this.epollStruct)
         }
     }
 

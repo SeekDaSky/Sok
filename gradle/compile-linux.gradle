@@ -15,6 +15,6 @@ kotlin {
 
         linuxMain{ dependsOn commonMain }
 
-        linuxTest{}
+        linuxTest{ dependsOn commonTest }
     }
 }
